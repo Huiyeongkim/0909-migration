@@ -1,0 +1,26 @@
+{
+  "project": "0909-commerce-java-to-rust",
+  "sourceRepository": "https://github.com/Huiyeongkim/0909",
+  "sourceRoot": "legacy/commerce",
+  "targetRoot": "commerce-rs",
+  "units": [
+    {
+      "id": "product-get-detail",
+      "title": "Migrate product detail lookup",
+      "status": "ready",
+      "sourcePaths": [
+        "commerce/src/main/java/store/_0982/commerce/presentation/product/ProductController.java",
+        "commerce/src/main/java/store/_0982/commerce/application/product/ProductService.java",
+        "commerce/src/main/java/store/_0982/commerce/application/product/dto/ProductDetailInfo.java",
+        "commerce/src/test/java/store/_0982/commerce/application/product/ProductServiceTest.java"
+      ],
+      "doneWhen": [
+        "The legacy HTTP and error behavior is documented",
+        "Rust tests cover successful and missing product lookup",
+        "The implementation uses a local persistence boundary",
+        "All available Java and Rust verification passes",
+        "legacy/commerce remains unchanged"
+      ]
+    }
+  ]
+}

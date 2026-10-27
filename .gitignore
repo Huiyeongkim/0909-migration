@@ -1,0 +1,4 @@
+legacy/
+commerce-rs/target/
+.env
+.DS_Store
