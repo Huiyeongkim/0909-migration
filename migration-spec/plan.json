@@ -188,6 +188,39 @@
       ]
     },
     {
+      "id": "group-purchase-likes",
+      "title": "Migrate group-purchase likes",
+      "status": "ready",
+      "sourcePaths": [
+        "commerce/src/main/java/store/_0982/commerce/presentation/grouppurchase/GroupPurchaseController.java",
+        "commerce/src/main/java/store/_0982/commerce/application/grouppurchase/GroupPurchaseLikeService.java",
+        "commerce/src/main/java/store/_0982/commerce/domain/grouppurchase/GroupPurchaseLike.java"
+      ],
+      "doneWhen": [
+        "Like and unlike HTTP contracts and errors are documented",
+        "Per-member duplicate protection and like-count consistency are covered",
+        "All available Java and Rust verification passes",
+        "legacy/commerce remains unchanged"
+      ]
+    },
+    {
+      "id": "group-purchase-participate",
+      "title": "Migrate group-purchase participation quantity",
+      "status": "ready",
+      "sourcePaths": [
+        "commerce/src/main/java/store/_0982/commerce/application/grouppurchase/ParticipateService.java",
+        "commerce/src/main/java/store/_0982/commerce/application/grouppurchase/GroupPurchaseQuantityService.java",
+        "commerce/src/test/java/store/_0982/commerce/application/grouppurchase/ParticipateServiceConcurrencyTest.java"
+      ],
+      "doneWhen": [
+        "The internal participation quantity contract is documented",
+        "Capacity checks are atomic and concurrent attempts cannot exceed max quantity",
+        "External events are deferred to event-boundaries",
+        "Legacy commerce sources compile and all Rust verification passes",
+        "legacy/commerce remains unchanged"
+      ]
+    },
+    {
       "id": "local-auth",
       "title": "Replace member authentication with a local account and session boundary",
       "status": "complete",
