@@ -529,6 +529,7 @@
       "locks": ["group-purchase-quantity-domain", "group-purchase-participate-plan"],
       "allowedPaths": [
         "commerce-rs/src/group_purchase/participate.rs",
+        "commerce-rs/src/group_purchase/mod.rs",
         "migration-spec/contracts/group-purchase-participate.md",
         "migration-spec/anomalies/group-purchase-participate.md",
         "migration-spec/plan.json"
