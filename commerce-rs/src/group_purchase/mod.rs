@@ -13,7 +13,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     sync::{Arc, RwLock},
 };
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
@@ -36,6 +36,7 @@ const PURCHASE_DELETED_MESSAGE: &str = "공동구매가 삭제되었습니다";
 pub struct GroupPurchaseRepository {
     purchases: Arc<RwLock<Vec<GroupPurchase>>>,
     likes: Arc<RwLock<HashSet<(Uuid, Uuid)>>>,
+    success_times: Arc<RwLock<HashMap<Uuid, String>>>,
 }
 
 #[derive(Clone)]
@@ -322,9 +323,24 @@ impl GroupPurchaseRepository {
     }
 
     fn new(purchases: impl IntoIterator<Item = GroupPurchase>) -> Self {
+        let purchases = purchases.into_iter().collect::<Vec<_>>();
+        let success_times = purchases
+            .iter()
+            .filter_map(|purchase| {
+                (purchase.status == "SUCCESS")
+                    .then(|| {
+                        purchase
+                            .updated_at
+                            .clone()
+                            .map(|time| (purchase.group_purchase_id, time))
+                    })
+                    .flatten()
+            })
+            .collect();
         Self {
-            purchases: Arc::new(RwLock::new(purchases.into_iter().collect())),
+            purchases: Arc::new(RwLock::new(purchases)),
             likes: Arc::new(RwLock::new(HashSet::new())),
+            success_times: Arc::new(RwLock::new(success_times)),
         }
     }
 

@@ -39,6 +39,29 @@ pub(crate) enum OrderParticipationTransactionError<E> {
     Commit(E),
 }
 
+#[derive(Clone)]
+pub(crate) struct OrderCancellationSnapshot {
+    pub(crate) group_purchase_id: Uuid,
+    pub(crate) succeeded_at: Option<String>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct OrderCancellation {
+    pub(crate) group_purchase_id: Uuid,
+    pub(crate) quantity: i32,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum OrderCancellationError {
+    NotFound,
+    Quantity,
+}
+
+pub(crate) enum OrderCancellationTransactionError<E> {
+    Cancellation(OrderCancellationError),
+    Commit(E),
+}
+
 impl GroupPurchaseRepository {
     #[cfg_attr(
         not(test),
@@ -51,6 +74,7 @@ impl GroupPurchaseRepository {
         product_exists: impl FnOnce(Uuid) -> bool,
     ) -> Result<(), ParticipateError> {
         let mut purchases = self.purchases.write().unwrap();
+        let mut success_times = self.success_times.write().unwrap();
         let purchase = purchases
             .iter_mut()
             .find(|purchase| purchase.group_purchase_id == purchase_id)
@@ -67,6 +91,9 @@ impl GroupPurchaseRepository {
         purchase.current_quantity = next_quantity;
         if next_quantity == purchase.max_quantity {
             purchase.status = "SUCCESS".to_owned();
+            let succeeded_at = super::now();
+            purchase.updated_at = Some(succeeded_at.clone());
+            success_times.insert(purchase.group_purchase_id, succeeded_at);
         }
         Ok(())
     }
@@ -78,7 +105,9 @@ impl GroupPurchaseRepository {
         commit: impl FnOnce(&[OrderPurchaseSnapshot]) -> Result<T, E>,
     ) -> Result<T, OrderParticipationTransactionError<E>> {
         let mut purchases = self.purchases.write().unwrap();
+        let mut success_times = self.success_times.write().unwrap();
         let original = purchases.clone();
+        let original_success_times = success_times.clone();
         let result = requests
             .iter()
             .map(|request| {
@@ -109,6 +138,9 @@ impl GroupPurchaseRepository {
                 purchase.current_quantity = next_quantity;
                 if next_quantity == purchase.max_quantity {
                     purchase.status = "SUCCESS".to_owned();
+                    let succeeded_at = super::now();
+                    purchase.updated_at = Some(succeeded_at.clone());
+                    success_times.insert(purchase.group_purchase_id, succeeded_at);
                 }
                 Ok(OrderPurchaseSnapshot {
                     group_purchase_id: purchase.group_purchase_id,
@@ -122,6 +154,7 @@ impl GroupPurchaseRepository {
             Ok(snapshots) => snapshots,
             Err(error) => {
                 *purchases = original;
+                *success_times = original_success_times;
                 return Err(error);
             }
         };
@@ -129,7 +162,81 @@ impl GroupPurchaseRepository {
             Ok(result) => Ok(result),
             Err(error) => {
                 *purchases = original;
+                *success_times = original_success_times;
                 Err(OrderParticipationTransactionError::Commit(error))
+            }
+        }
+    }
+
+    pub(crate) fn order_cancellation_snapshot(
+        &self,
+        purchase_id: Uuid,
+    ) -> Result<OrderCancellationSnapshot, OrderCancellationError> {
+        let purchases = self.purchases.read().unwrap();
+        let success_times = self.success_times.read().unwrap();
+        let purchase = purchases
+            .iter()
+            .find(|purchase| purchase.group_purchase_id == purchase_id)
+            .ok_or(OrderCancellationError::NotFound)?;
+        Ok(OrderCancellationSnapshot {
+            group_purchase_id: purchase.group_purchase_id,
+            succeeded_at: success_times.get(&purchase.group_purchase_id).cloned(),
+        })
+    }
+
+    pub(crate) fn with_order_cancellation<T, E>(
+        &self,
+        purchase_id: Uuid,
+        quantity: i32,
+        commit: impl FnOnce(&OrderCancellationSnapshot) -> Result<T, E>,
+    ) -> Result<T, OrderCancellationTransactionError<E>> {
+        self.with_order_cancellations(
+            &[OrderCancellation {
+                group_purchase_id: purchase_id,
+                quantity,
+            }],
+            |snapshots| commit(&snapshots[0]),
+        )
+    }
+
+    pub(crate) fn with_order_cancellations<T, E>(
+        &self,
+        requests: &[OrderCancellation],
+        commit: impl FnOnce(&[OrderCancellationSnapshot]) -> Result<T, E>,
+    ) -> Result<T, OrderCancellationTransactionError<E>> {
+        let mut purchases = self.purchases.write().unwrap();
+        let success_times = self.success_times.read().unwrap();
+        let original = purchases.clone();
+        let snapshots = requests
+            .iter()
+            .map(|request| {
+                let purchase = purchases
+                    .iter_mut()
+                    .find(|purchase| purchase.group_purchase_id == request.group_purchase_id)
+                    .ok_or(OrderCancellationError::NotFound)?;
+                purchase.current_quantity = purchase
+                    .current_quantity
+                    .checked_sub(request.quantity)
+                    .filter(|next| *next >= 0)
+                    .ok_or(OrderCancellationError::Quantity)?;
+                Ok(OrderCancellationSnapshot {
+                    group_purchase_id: purchase.group_purchase_id,
+                    succeeded_at: success_times.get(&purchase.group_purchase_id).cloned(),
+                })
+            })
+            .collect::<Result<Vec<_>, _>>();
+        let snapshots = match snapshots {
+            Ok(snapshots) => snapshots,
+            Err(error) => {
+                *purchases = original;
+                return Err(OrderCancellationTransactionError::Cancellation(error));
+            }
+        };
+        match commit(&snapshots) {
+            Ok(result) => Ok(result),
+            Err(error) => {
+                *purchases = original;
+                Err(OrderCancellationTransactionError::Commit(error))
             }
         }
     }
@@ -201,6 +308,12 @@ mod tests {
         let updated = purchases.find_by_id(purchase_id).unwrap();
         assert_eq!(updated.current_quantity, 10);
         assert_eq!(updated.status, "SUCCESS");
+        assert!(updated.updated_at.is_some());
+        assert!(purchases
+            .order_cancellation_snapshot(purchase_id)
+            .unwrap()
+            .succeeded_at
+            .is_some());
     }
 
     #[test]
@@ -368,5 +481,61 @@ mod tests {
             purchases.find_by_id(purchase_id).unwrap().current_quantity,
             3
         );
+    }
+
+    #[test]
+    fn order_cancellation_decreases_quantity_and_rolls_back_failed_commit() {
+        let purchase_id = Uuid::new_v4();
+        let product_id = Uuid::new_v4();
+        let purchases =
+            GroupPurchaseRepository::new([purchase(purchase_id, product_id, 7, 10, "SUCCESS")]);
+
+        let result = purchases
+            .with_order_cancellation(purchase_id, 2, |_| Err::<(), _>("refund write failed"));
+
+        assert!(matches!(
+            result,
+            Err(OrderCancellationTransactionError::Commit(
+                "refund write failed"
+            ))
+        ));
+        assert_eq!(
+            purchases.find_by_id(purchase_id).unwrap().current_quantity,
+            7
+        );
+    }
+
+    #[test]
+    fn order_cancellation_batch_rolls_back_prior_decrease() {
+        let first_id = Uuid::new_v4();
+        let second_id = Uuid::new_v4();
+        let product_id = Uuid::new_v4();
+        let purchases = GroupPurchaseRepository::new([
+            purchase(first_id, product_id, 4, 10, "OPEN"),
+            purchase(second_id, product_id, 1, 10, "OPEN"),
+        ]);
+
+        let result = purchases.with_order_cancellations(
+            &[
+                OrderCancellation {
+                    group_purchase_id: first_id,
+                    quantity: 2,
+                },
+                OrderCancellation {
+                    group_purchase_id: second_id,
+                    quantity: 2,
+                },
+            ],
+            |_| Ok::<_, ()>(()),
+        );
+
+        assert!(matches!(
+            result,
+            Err(OrderCancellationTransactionError::Cancellation(
+                OrderCancellationError::Quantity
+            ))
+        ));
+        assert_eq!(purchases.find_by_id(first_id).unwrap().current_quantity, 4);
+        assert_eq!(purchases.find_by_id(second_id).unwrap().current_quantity, 1);
     }
 }

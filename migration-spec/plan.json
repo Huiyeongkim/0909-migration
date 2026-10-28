@@ -377,7 +377,7 @@
     {
       "id": "order-cancel",
       "title": "Migrate order cancellation and local point refunds",
-      "status": "ready",
+      "status": "complete",
       "sourcePaths": [
         "commerce/src/main/java/store/_0982/commerce/presentation/order/CanceledOrderController.java",
         "commerce/src/main/java/store/_0982/commerce/presentation/order/OrderCronController.java",
@@ -391,6 +391,9 @@
         "Policy boundaries, low-value orders, authorization, concurrency, retry, approval, rejection, and rollback are covered",
         "Legacy cancellation tests and all Rust verification pass",
         "legacy/commerce remains unchanged"
+      ],
+      "notes": [
+        "Implemented buyer and seller cancellation routes, history and pending pages, seller approval/rejection, stale refund retry, and two-day auto approval. Approved safety differences restore rejected orders, close the 48-hour and 14-day boundaries, prevent negative refunds, validate ownership before member-scoped idempotency, and exclude soft-deleted orders. Refunds use a process-local point balance and ledger, buyer cancellation fees create settlement rows, participation decreases are rollback-safe, and structured logs omit delivery PII."
       ]
     },
     {
