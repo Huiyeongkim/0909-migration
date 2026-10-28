@@ -474,6 +474,8 @@ fn app(
     auth: AuthRepository,
 ) -> Router {
     let group_purchases = group_purchase::GroupPurchaseRepository::empty();
+    let carts = cart::CartRepository::empty();
+    let orders = order::OrderRepository::empty();
     Router::new()
         .route("/internal/products/vector", get(get_products_for_vector))
         .route("/api/products", get(get_product_list).post(create_product))
@@ -486,12 +488,21 @@ fn app(
         .with_state(AppState {
             products: products.clone(),
         })
-        .merge(cart::router(group_purchases.clone()))
-        .merge(group_purchase::router(group_purchases, products))
+        .merge(cart::router(carts.clone(), group_purchases.clone()))
+        .merge(group_purchase::router(
+            group_purchases.clone(),
+            products.clone(),
+        ))
         .merge(image::router(images))
         .merge(seller_balance::router(seller_balances))
-        .merge(local_auth::router(auth))
-        .merge(order::router())
+        .merge(local_auth::router(auth.clone()))
+        .merge(order::router(
+            orders,
+            carts,
+            group_purchases,
+            auth,
+            products,
+        ))
 }
 
 async fn get_products_for_vector(

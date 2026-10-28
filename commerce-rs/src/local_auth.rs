@@ -117,6 +117,27 @@ impl AuthRepository {
         }
     }
 
+    pub(crate) async fn member_exists(&self, member_id: Uuid) -> Result<bool, ()> {
+        match &self.backend {
+            RepositoryBackend::Postgres(pool) => sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM auth_schema.local_account WHERE member_id = $1)",
+            )
+            .bind(member_id)
+            .fetch_one(pool)
+            .await
+            .map_err(|error| {
+                eprintln!("local auth database error: {error}");
+            }),
+            #[cfg(test)]
+            RepositoryBackend::Test(store) => Ok(store
+                .lock()
+                .await
+                .accounts
+                .values()
+                .any(|account| account.member_id == member_id)),
+        }
+    }
+
     async fn create_account(
         &self,
         username: String,
@@ -289,6 +310,21 @@ impl AuthRepository {
             .accounts
             .get(username)
             .map(|account| account.password_hash.clone())
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn insert_test_member(&self, member_id: Uuid) {
+        let RepositoryBackend::Test(store) = &self.backend else {
+            panic!("test repository required");
+        };
+        store.lock().await.accounts.insert(
+            member_id.to_string(),
+            Account {
+                member_id,
+                username: member_id.to_string(),
+                password_hash: "test-only".to_owned(),
+            },
+        );
     }
 }
 

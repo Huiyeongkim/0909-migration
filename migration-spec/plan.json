@@ -305,7 +305,7 @@
     {
       "id": "order-create",
       "title": "Migrate direct and cart order creation",
-      "status": "ready",
+      "status": "complete",
       "sourcePaths": [
         "commerce/src/main/java/store/_0982/commerce/presentation/order/OrderController.java",
         "commerce/src/main/java/store/_0982/commerce/application/order/OrderCommandService.java",
@@ -319,6 +319,9 @@
         "No external member, payment, or broker integration is added",
         "Legacy commerce sources compile and all Rust verification passes",
         "legacy/commerce remains unchanged"
+      ],
+      "notes": [
+        "Direct and cart order creation now share a process-local order repository with member-scoped idempotency, atomic group-purchase participation, price snapshots, PENDING state, ten-minute expiry, local member existence checks, and cart soft-zero only after full success. Direct orders intentionally use the group purchase seller instead of the untrusted request seller. Focused tests cover concurrent replay, cross-member keys, validation, capacity, missing products, commit rollback, cart ownership, batch rollback, and cart retry. Rust fmt, check, clippy, and full tests pass; Java verification is reserved for the integration owner."
       ]
     },
     {

@@ -24,7 +24,7 @@ const CART_LIST_MESSAGE: &str = "장바구니에 담긴 공동구매상품 리�
 const CART_FLUSHED_MESSAGE: &str = "장바구니를 비웠습니다.";
 
 #[derive(Clone, Default)]
-struct CartRepository {
+pub(crate) struct CartRepository {
     carts: Arc<RwLock<Vec<Cart>>>,
 }
 
@@ -36,6 +36,20 @@ struct Cart {
     quantity: i32,
     created_at: String,
     updated_at: Option<String>,
+}
+
+#[derive(Clone)]
+pub(crate) struct OrderCart {
+    pub(crate) cart_id: Uuid,
+    pub(crate) group_purchase_id: Uuid,
+    pub(crate) quantity: i32,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum OrderCartError {
+    NotFound,
+    Forbidden,
+    Empty,
 }
 
 #[derive(Clone)]
@@ -120,6 +134,30 @@ impl From<Cart> for CartInfo {
 }
 
 impl CartRepository {
+    pub(crate) fn empty() -> Self {
+        Self::default()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn insert_test_cart(
+        &self,
+        member_id: Uuid,
+        group_purchase_id: Uuid,
+        quantity: i32,
+    ) -> Uuid {
+        self.add(member_id, group_purchase_id, quantity).cart_id
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_quantity(&self, cart_id: Uuid) -> Option<i32> {
+        self.carts
+            .read()
+            .unwrap()
+            .iter()
+            .find(|cart| cart.cart_id == cart_id)
+            .map(|cart| cart.quantity)
+    }
+
     fn add(&self, member_id: Uuid, group_purchase_id: Uuid, quantity: i32) -> Cart {
         let mut carts = self.carts.write().unwrap();
         if let Some(cart) = carts
@@ -193,9 +231,53 @@ impl CartRepository {
             cart.quantity = 0;
         }
     }
+
+    pub(crate) fn with_order_carts<T, E>(
+        &self,
+        member_id: Uuid,
+        cart_ids: &[Uuid],
+        create_orders: impl FnOnce(&[OrderCart]) -> Result<T, E>,
+    ) -> Result<T, Result<OrderCartError, E>> {
+        let mut carts = self.carts.write().unwrap();
+        let selected = cart_ids
+            .iter()
+            .map(|cart_id| {
+                carts
+                    .iter()
+                    .find(|cart| cart.cart_id == *cart_id)
+                    .cloned()
+                    .ok_or(OrderCartError::NotFound)
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(Ok)?;
+        if selected.iter().any(|cart| cart.member_id != member_id) {
+            return Err(Ok(OrderCartError::Forbidden));
+        }
+        if selected.iter().any(|cart| cart.quantity <= 0) {
+            return Err(Ok(OrderCartError::Empty));
+        }
+        let order_carts = selected
+            .iter()
+            .map(|cart| OrderCart {
+                cart_id: cart.cart_id,
+                group_purchase_id: cart.group_purchase_id,
+                quantity: cart.quantity,
+            })
+            .collect::<Vec<_>>();
+        let result = create_orders(&order_carts).map_err(Err)?;
+        for selected_cart in selected {
+            let cart = carts
+                .iter_mut()
+                .find(|cart| cart.cart_id == selected_cart.cart_id)
+                .expect("validated cart must remain present while the repository is locked");
+            cart.quantity = 0;
+            cart.updated_at = Some(now());
+        }
+        Ok(result)
+    }
 }
 
-pub fn router(group_purchases: GroupPurchaseRepository) -> Router {
+pub fn router(carts: CartRepository, group_purchases: GroupPurchaseRepository) -> Router {
     Router::new()
         .route(
             "/api/carts",
@@ -203,7 +285,7 @@ pub fn router(group_purchases: GroupPurchaseRepository) -> Router {
         )
         .route("/api/carts/all", axum::routing::delete(flush))
         .with_state(CartState {
-            carts: CartRepository::default(),
+            carts,
             group_purchases,
         })
 }
