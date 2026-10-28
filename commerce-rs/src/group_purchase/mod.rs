@@ -28,6 +28,7 @@ const PURCHASE_OWNER_MESSAGE: &str = "본인이 등록한 공동구매만 삭제
 const INVALID_QUANTITY_RANGE_MESSAGE: &str = "잘못된 수량입니다.";
 const INVALID_DATE_RANGE_MESSAGE: &str = "잘못된 날짜 범위입니다.";
 const INVALID_OPEN_UPDATE_MESSAGE: &str = "공동 구매가 OPEN 상태입니다.";
+const INTERNAL_ERROR_MESSAGE: &str = "서버 내부 오류가 발생했습니다.";
 const PURCHASE_CREATED_MESSAGE: &str = "공동 구매가 생성 되었습니다.";
 const PURCHASE_UPDATED_MESSAGE: &str = "공동구매 정보가 수정되었습니다.";
 const PURCHASE_DELETED_MESSAGE: &str = "공동구매가 삭제되었습니다";
@@ -233,7 +234,7 @@ impl From<GroupPurchase> for GroupPurchaseInfo {
 #[derive(Clone)]
 struct GroupPurchaseState {
     purchases: GroupPurchaseRepository,
-    products: Arc<dyn ProductRepository>,
+    products: ProductRepository,
 }
 
 impl GroupPurchaseRepository {
@@ -470,7 +471,7 @@ impl GroupPurchaseRepository {
     }
 }
 
-pub fn router(purchases: GroupPurchaseRepository, products: Arc<dyn ProductRepository>) -> Router {
+pub fn router(purchases: GroupPurchaseRepository, products: ProductRepository) -> Router {
     Router::new()
         .route("/api/purchases", get(public_list).post(create))
         .route("/api/purchases/seller/{seller_id}", get(seller_list))
@@ -506,8 +507,13 @@ async fn create(
         Ok(write) => write,
         Err(message) => return error(StatusCode::BAD_REQUEST, message),
     };
-    let Some(product) = state.products.find_by_id(write.product_id) else {
-        return error(StatusCode::NOT_FOUND, PRODUCT_NOT_FOUND_MESSAGE);
+    let product = match state.products.find_by_id(write.product_id).await {
+        Ok(Some(product)) => product,
+        Ok(None) => return error(StatusCode::NOT_FOUND, PRODUCT_NOT_FOUND_MESSAGE),
+        Err(error_value) => {
+            eprintln!("product database error: {error_value}");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, INTERNAL_ERROR_MESSAGE);
+        }
     };
     if product.seller_id != seller_id {
         return error(StatusCode::FORBIDDEN, PRODUCT_OWNER_MESSAGE);
@@ -560,8 +566,13 @@ async fn update(
     if open_fields_changed(&existing, &write) {
         return error(StatusCode::BAD_REQUEST, INVALID_OPEN_UPDATE_MESSAGE);
     }
-    if state.products.find_by_id(write.product_id).is_none() {
-        return error(StatusCode::NOT_FOUND, PRODUCT_NOT_FOUND_MESSAGE);
+    match state.products.find_by_id(write.product_id).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return error(StatusCode::NOT_FOUND, PRODUCT_NOT_FOUND_MESSAGE),
+        Err(error_value) => {
+            eprintln!("product database error: {error_value}");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, INTERNAL_ERROR_MESSAGE);
+        }
     }
 
     match state.purchases.update(purchase_id, seller_id, write) {
@@ -685,8 +696,13 @@ async fn detail(
     let Some(purchase) = state.purchases.find_by_id(purchase_id) else {
         return error(StatusCode::NOT_FOUND, PURCHASE_NOT_FOUND_MESSAGE);
     };
-    let Some(product) = state.products.find_by_id(purchase.product_id) else {
-        return error(StatusCode::NOT_FOUND, PRODUCT_NOT_FOUND_MESSAGE);
+    let product = match state.products.find_by_id(purchase.product_id).await {
+        Ok(Some(product)) => product,
+        Ok(None) => return error(StatusCode::NOT_FOUND, PRODUCT_NOT_FOUND_MESSAGE),
+        Err(error_value) => {
+            eprintln!("product database error: {error_value}");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, INTERNAL_ERROR_MESSAGE);
+        }
     };
     api_response(
         StatusCode::OK,
@@ -741,8 +757,13 @@ async fn list(
     );
     let mut content = Vec::with_capacity(purchases.len());
     for purchase in purchases {
-        let Some(product) = state.products.find_by_id(purchase.product_id) else {
-            return error(StatusCode::NOT_FOUND, PRODUCT_NOT_FOUND_MESSAGE);
+        let product = match state.products.find_by_id(purchase.product_id).await {
+            Ok(Some(product)) => product,
+            Ok(None) => return error(StatusCode::NOT_FOUND, PRODUCT_NOT_FOUND_MESSAGE),
+            Err(error_value) => {
+                eprintln!("product database error: {error_value}");
+                return error(StatusCode::INTERNAL_SERVER_ERROR, INTERNAL_ERROR_MESSAGE);
+            }
         };
         content.push(thumbnail_info(purchase, product));
     }
@@ -927,7 +948,7 @@ mod tests {
     ) -> (StatusCode, Value) {
         let app = router(
             GroupPurchaseRepository::new(purchases),
-            Arc::new(LocalProductRepository::new(products)),
+            LocalProductRepository::new(products),
         );
         let response = app
             .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
@@ -957,7 +978,7 @@ mod tests {
             }
             None => Body::empty(),
         };
-        let response = router(purchases, products)
+        let response = router(purchases, (*products).clone())
             .oneshot(request.body(body).unwrap())
             .await
             .unwrap();

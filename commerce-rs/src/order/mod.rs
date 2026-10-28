@@ -37,7 +37,7 @@ pub(super) struct OrderState {
     carts: CartRepository,
     group_purchases: GroupPurchaseRepository,
     auth: AuthRepository,
-    products: Arc<dyn ProductRepository>,
+    products: ProductRepository,
 }
 
 #[derive(Clone)]
@@ -235,7 +235,7 @@ pub fn router(
     carts: CartRepository,
     group_purchases: GroupPurchaseRepository,
     auth: AuthRepository,
-    products: Arc<dyn ProductRepository>,
+    products: ProductRepository,
 ) -> Router {
     let state = OrderState {
         orders,

@@ -60,7 +60,6 @@ mod tests {
         body::{to_bytes, Body},
         http::Request,
     };
-    use std::sync::Arc;
     use tower::ServiceExt;
 
     fn order(
@@ -101,7 +100,7 @@ mod tests {
             carts: CartRepository::empty(),
             group_purchases: GroupPurchaseRepository::empty(),
             auth: AuthRepository::default(),
-            products: Arc::new(LocalProductRepository::new([])),
+            products: LocalProductRepository::new([]),
         }
     }
 

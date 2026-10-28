@@ -510,7 +510,7 @@ mod tests {
             carts: CartRepository::empty(),
             group_purchases: purchases,
             auth,
-            products: Arc::new(LocalProductRepository::new([])),
+            products: LocalProductRepository::new([]),
         }
     }
 

@@ -178,7 +178,7 @@ mod tests {
         http::Request,
     };
     use serde_json::{json, Value};
-    use std::{sync::Arc, thread};
+    use std::thread;
     use tower::ServiceExt;
 
     fn order(member_id: Uuid, status: &'static str) -> Order {
@@ -206,7 +206,7 @@ mod tests {
             carts: CartRepository::empty(),
             group_purchases: GroupPurchaseRepository::empty(),
             auth: AuthRepository::default(),
-            products: Arc::new(LocalProductRepository::new([])),
+            products: LocalProductRepository::new([]),
         }
     }
 

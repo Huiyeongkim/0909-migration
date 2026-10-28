@@ -9,11 +9,13 @@ use image::ImageRepository;
 use local_auth::AuthRepository;
 use seller_balance::SellerBalanceRepository;
 use serde::{Deserialize, Serialize};
-use sqlx::postgres::PgPoolOptions;
-use std::{
-    collections::{HashMap, HashSet},
-    sync::{Arc, RwLock},
+use sqlx::{
+    postgres::{PgPoolOptions, PgRow},
+    PgPool, Row,
 };
+use std::collections::{HashMap, HashSet};
+#[cfg(test)]
+use std::sync::{Arc, RwLock};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use uuid::Uuid;
 
@@ -34,6 +36,7 @@ const PRODUCT_UPDATED_MESSAGE: &str = "상품 수정이 완료되었습니다.";
 const PRODUCT_DELETED_MESSAGE: &str = "상품이 삭제되었습니다.";
 const FORBIDDEN_NOT_PRODUCT_OWNER_MESSAGE: &str = "본인이 등록한 상품이 아닙니다.";
 const ACTIVE_GROUP_PURCHASE_MESSAGE: &str = "진행 중이거나 예정된 공동구매가 존재합니다.";
+const INTERNAL_ERROR_MESSAGE: &str = "서버 내부 오류가 발생했습니다.";
 
 const PRODUCT_CATEGORIES: [&str; 9] = [
     "HOME",
@@ -244,6 +247,7 @@ impl From<ProductDetail> for ProductUpdateInfo {
     }
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 enum DeleteProductResult {
     HardDeleted,
     SoftDeleted,
@@ -252,23 +256,22 @@ enum DeleteProductResult {
     ActiveGroupPurchase,
 }
 
-trait ProductRepository: Send + Sync {
-    fn find_by_id(&self, product_id: Uuid) -> Option<ProductDetail>;
-    fn find_by_seller(
-        &self,
-        seller_id: Uuid,
-        options: &ProductListOptions,
-    ) -> (Vec<ProductDetail>, usize);
-    fn find_all_for_vector(&self, options: &InternalProductOptions) -> (Vec<ProductDetail>, usize);
-    fn create(&self, product: NewProduct) -> ProductDetail;
-    fn update(&self, product_id: Uuid, update: ProductUpdateRequest) -> Option<ProductDetail>;
-    fn delete(&self, product_id: Uuid, seller_id: Uuid) -> DeleteProductResult;
+#[derive(Clone)]
+struct ProductRepository {
+    backend: ProductRepositoryBackend,
 }
 
-struct LocalProductRepository {
-    store: RwLock<LocalProductStore>,
+#[derive(Clone)]
+enum ProductRepositoryBackend {
+    Postgres(PgPool),
+    #[cfg(test)]
+    Local(Arc<RwLock<LocalProductStore>>),
 }
 
+#[cfg(test)]
+type LocalProductRepository = ProductRepository;
+
+#[cfg(test)]
 struct LocalProductStore {
     products: HashMap<Uuid, StoredProduct>,
     idempotency_keys: HashMap<String, Uuid>,
@@ -276,15 +279,17 @@ struct LocalProductStore {
     active_group_purchase: HashSet<Uuid>,
 }
 
+#[cfg(test)]
 struct StoredProduct {
     detail: ProductDetail,
     deleted_at: Option<String>,
 }
 
-impl LocalProductRepository {
+impl ProductRepository {
+    #[cfg(test)]
     fn new(products: impl IntoIterator<Item = ProductDetail>) -> Self {
         Self {
-            store: RwLock::new(LocalProductStore {
+            backend: ProductRepositoryBackend::Local(Arc::new(RwLock::new(LocalProductStore {
                 products: products
                     .into_iter()
                     .map(|product| {
@@ -300,13 +305,27 @@ impl LocalProductRepository {
                 idempotency_keys: HashMap::new(),
                 used_in_group_purchase: HashSet::new(),
                 active_group_purchase: HashSet::new(),
-            }),
+            }))),
+        }
+    }
+
+    fn postgres(pool: PgPool) -> Self {
+        Self {
+            backend: ProductRepositoryBackend::Postgres(pool),
         }
     }
 
     #[cfg(test)]
+    fn local_store(&self) -> &RwLock<LocalProductStore> {
+        let ProductRepositoryBackend::Local(store) = &self.backend else {
+            panic!("local product repository required");
+        };
+        store
+    }
+
+    #[cfg(test)]
     fn mark_group_purchase_usage(&self, product_id: Uuid, active: bool) {
-        let mut store = self.store.write().unwrap();
+        let mut store = self.local_store().write().unwrap();
         store.used_in_group_purchase.insert(product_id);
         if active {
             store.active_group_purchase.insert(product_id);
@@ -315,149 +334,351 @@ impl LocalProductRepository {
 
     #[cfg(test)]
     fn is_soft_deleted(&self, product_id: Uuid) -> bool {
-        self.store
+        self.local_store()
             .read()
             .unwrap()
             .products
             .get(&product_id)
             .is_some_and(|product| product.deleted_at.is_some())
     }
-}
 
-impl ProductRepository for LocalProductRepository {
-    fn find_by_id(&self, product_id: Uuid) -> Option<ProductDetail> {
-        self.store
+    #[cfg(test)]
+    fn contains_local(&self, product_id: Uuid) -> bool {
+        self.local_store()
             .read()
             .unwrap()
             .products
-            .get(&product_id)
-            .map(|product| product.detail.clone())
+            .contains_key(&product_id)
+    }
+}
+
+impl ProductRepository {
+    async fn find_by_id(&self, product_id: Uuid) -> Result<Option<ProductDetail>, sqlx::Error> {
+        match &self.backend {
+            ProductRepositoryBackend::Postgres(pool) => {
+                sqlx::query("SELECT product_id,name,price,category,description,stock,original_url,image_url,seller_id,created_at,updated_at FROM product_schema.product WHERE product_id=$1")
+                    .bind(product_id)
+                    .fetch_optional(pool)
+                    .await?
+                    .map(|row| product_from_row(&row))
+                    .transpose()
+            }
+            #[cfg(test)]
+            ProductRepositoryBackend::Local(store) => Ok(store
+                .read()
+                .unwrap()
+                .products
+                .get(&product_id)
+                .map(|product| product.detail.clone())),
+        }
     }
 
-    fn find_by_seller(
+    async fn find_by_seller(
         &self,
         seller_id: Uuid,
         options: &ProductListOptions,
-    ) -> (Vec<ProductDetail>, usize) {
-        let store = self.store.read().unwrap();
-        let mut products = store
-            .products
-            .values()
-            .filter(|product| product.detail.seller_id == seller_id)
-            .map(|product| product.detail.clone())
-            .collect::<Vec<_>>();
-        products.sort_by(|left, right| left.created_at.cmp(&right.created_at));
-        if options.descending {
-            products.reverse();
+    ) -> Result<(Vec<ProductDetail>, usize), sqlx::Error> {
+        match &self.backend {
+            ProductRepositoryBackend::Postgres(pool) => {
+                let total: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM product_schema.product WHERE seller_id=$1",
+                )
+                .bind(seller_id)
+                .fetch_one(pool)
+                .await?;
+                let order = if options.descending { "DESC" } else { "ASC" };
+                let query = format!("SELECT product_id,name,price,category,description,stock,original_url,image_url,seller_id,created_at,updated_at FROM product_schema.product WHERE seller_id=$1 ORDER BY created_at {order} LIMIT $2 OFFSET $3");
+                let limit = i64::try_from(options.size).unwrap_or(i64::MAX);
+                let offset =
+                    i64::try_from(options.page.saturating_mul(options.size)).unwrap_or(i64::MAX);
+                let products = sqlx::query(&query)
+                    .bind(seller_id)
+                    .bind(limit)
+                    .bind(offset)
+                    .fetch_all(pool)
+                    .await?
+                    .into_iter()
+                    .map(|row| product_from_row(&row))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok((products, usize::try_from(total).unwrap_or(usize::MAX)))
+            }
+            #[cfg(test)]
+            ProductRepositoryBackend::Local(store) => {
+                let store = store.read().unwrap();
+                let mut products = store
+                    .products
+                    .values()
+                    .filter(|product| product.detail.seller_id == seller_id)
+                    .map(|product| product.detail.clone())
+                    .collect::<Vec<_>>();
+                products.sort_by(|left, right| left.created_at.cmp(&right.created_at));
+                if options.descending {
+                    products.reverse();
+                }
+                let total = products.len();
+                let start = options.page.saturating_mul(options.size);
+                Ok((
+                    products
+                        .into_iter()
+                        .skip(start)
+                        .take(options.size)
+                        .collect(),
+                    total,
+                ))
+            }
         }
+    }
 
-        let total = products.len();
-        let start = options.page.saturating_mul(options.size);
-        let page = products
+    async fn find_all_for_vector(
+        &self,
+        options: &InternalProductOptions,
+    ) -> Result<(Vec<ProductDetail>, usize), sqlx::Error> {
+        match &self.backend {
+            ProductRepositoryBackend::Postgres(pool) => {
+                let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM product_schema.product")
+                    .fetch_one(pool)
+                    .await?;
+                let products = sqlx::query("SELECT product_id,name,price,category,description,stock,original_url,image_url,seller_id,created_at,updated_at FROM product_schema.product ORDER BY product_id LIMIT $1 OFFSET $2")
+                    .bind(i64::try_from(options.size).unwrap_or(i64::MAX))
+                    .bind(i64::try_from(options.page.saturating_mul(options.size)).unwrap_or(i64::MAX))
+                    .fetch_all(pool)
+                    .await?
+                    .into_iter()
+                    .map(|row| product_from_row(&row))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok((products, usize::try_from(total).unwrap_or(usize::MAX)))
+            }
+            #[cfg(test)]
+            ProductRepositoryBackend::Local(store) => {
+                let store = store.read().unwrap();
+                let mut products = store
+                    .products
+                    .values()
+                    .map(|product| product.detail.clone())
+                    .collect::<Vec<_>>();
+                products.sort_by_key(|product| product.product_id);
+                let total = products.len();
+                let start = options.page.saturating_mul(options.size);
+                Ok((
+                    products
+                        .into_iter()
+                        .skip(start)
+                        .take(options.size)
+                        .collect(),
+                    total,
+                ))
+            }
+        }
+    }
+
+    async fn create(&self, product: NewProduct) -> Result<ProductDetail, sqlx::Error> {
+        match &self.backend {
+            ProductRepositoryBackend::Postgres(pool) => {
+                let mut tx = pool.begin().await?;
+                sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+                    .bind(&product.idempotency_key)
+                    .execute(&mut *tx)
+                    .await?;
+                if let Some(row) = sqlx::query("SELECT product_id,name,price,category,description,stock,original_url,image_url,seller_id,created_at,updated_at FROM product_schema.product WHERE idempotency_key=$1")
+                    .bind(&product.idempotency_key)
+                    .fetch_optional(&mut *tx)
+                    .await?
+                {
+                    let detail = product_from_row(&row)?;
+                    tx.commit().await?;
+                    return Ok(detail);
+                }
+                let row = sqlx::query("INSERT INTO product_schema.product (product_id,idempotency_key,name,price,category,description,stock,original_url,image_url,seller_id,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW()) RETURNING product_id,name,price,category,description,stock,original_url,image_url,seller_id,created_at,updated_at")
+                    .bind(Uuid::new_v4())
+                    .bind(&product.idempotency_key)
+                    .bind(&product.name)
+                    .bind(product.price)
+                    .bind(&product.category)
+                    .bind(&product.description)
+                    .bind(product.stock)
+                    .bind(&product.original_link)
+                    .bind(&product.image_url)
+                    .bind(product.seller_id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+                let detail = product_from_row(&row)?;
+                tx.commit().await?;
+                Ok(detail)
+            }
+            #[cfg(test)]
+            ProductRepositoryBackend::Local(store) => {
+                let mut store = store.write().unwrap();
+                if let Some(product_id) = store.idempotency_keys.get(&product.idempotency_key) {
+                    return Ok(store.products[product_id].detail.clone());
+                }
+                let product_id = Uuid::new_v4();
+                let detail = ProductDetail {
+                    product_id,
+                    name: product.name,
+                    price: product.price,
+                    category: product.category,
+                    description: product.description,
+                    stock: product.stock,
+                    original_link: product.original_link,
+                    image_url: product.image_url,
+                    seller_id: product.seller_id,
+                    created_at: now(),
+                    updated_at: None,
+                };
+                store
+                    .idempotency_keys
+                    .insert(product.idempotency_key, product_id);
+                store.products.insert(
+                    product_id,
+                    StoredProduct {
+                        detail: detail.clone(),
+                        deleted_at: None,
+                    },
+                );
+                Ok(detail)
+            }
+        }
+    }
+
+    async fn update(
+        &self,
+        product_id: Uuid,
+        update: ProductUpdateRequest,
+    ) -> Result<Option<ProductDetail>, sqlx::Error> {
+        match &self.backend {
+            ProductRepositoryBackend::Postgres(pool) => sqlx::query("UPDATE product_schema.product SET name=$2,price=$3,category=$4,description=$5,stock=$6,original_url=$7,image_url=$8,updated_at=NOW() WHERE product_id=$1 RETURNING product_id,name,price,category,description,stock,original_url,image_url,seller_id,created_at,updated_at")
+                .bind(product_id)
+                .bind(&update.name)
+                .bind(update.price)
+                .bind(&update.category)
+                .bind(&update.description)
+                .bind(update.stock)
+                .bind(&update.original_link)
+                .bind(&update.image_url)
+                .fetch_optional(pool)
+                .await?
+                .map(|row| product_from_row(&row))
+                .transpose(),
+            #[cfg(test)]
+            ProductRepositoryBackend::Local(store) => {
+                let mut store = store.write().unwrap();
+                let Some(product) = store.products.get_mut(&product_id) else {
+                    return Ok(None);
+                };
+                product.detail.name = update.name;
+                product.detail.price = update.price;
+                product.detail.category = update.category;
+                product.detail.description = update.description;
+                product.detail.stock = update.stock;
+                product.detail.original_link = update.original_link;
+                product.detail.image_url = update.image_url;
+                product.detail.updated_at = Some(now());
+                Ok(Some(product.detail.clone()))
+            }
+        }
+    }
+
+    async fn delete(
+        &self,
+        product_id: Uuid,
+        seller_id: Uuid,
+    ) -> Result<DeleteProductResult, sqlx::Error> {
+        match &self.backend {
+            ProductRepositoryBackend::Postgres(pool) => {
+                let mut tx = pool.begin().await?;
+                let owner = sqlx::query_scalar::<_, Uuid>(
+                    "SELECT seller_id FROM product_schema.product WHERE product_id=$1 FOR UPDATE",
+                )
+                .bind(product_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+                let Some(owner) = owner else {
+                    return Ok(DeleteProductResult::NotFound);
+                };
+                if owner != seller_id {
+                    return Ok(DeleteProductResult::Forbidden);
+                }
+                sqlx::query("DELETE FROM product_schema.product WHERE product_id=$1")
+                    .bind(product_id)
+                    .execute(&mut *tx)
+                    .await?;
+                tx.commit().await?;
+                Ok(DeleteProductResult::HardDeleted)
+            }
+            #[cfg(test)]
+            ProductRepositoryBackend::Local(store) => {
+                let mut store = store.write().unwrap();
+                let Some(product) = store.products.get(&product_id) else {
+                    return Ok(DeleteProductResult::NotFound);
+                };
+                if product.detail.seller_id != seller_id {
+                    return Ok(DeleteProductResult::Forbidden);
+                }
+                if store.active_group_purchase.contains(&product_id) {
+                    return Ok(DeleteProductResult::ActiveGroupPurchase);
+                }
+                if store.used_in_group_purchase.contains(&product_id) {
+                    store.products.get_mut(&product_id).unwrap().deleted_at = Some(now());
+                    Ok(DeleteProductResult::SoftDeleted)
+                } else {
+                    store.products.remove(&product_id);
+                    store
+                        .idempotency_keys
+                        .retain(|_, stored_product_id| *stored_product_id != product_id);
+                    Ok(DeleteProductResult::HardDeleted)
+                }
+            }
+        }
+    }
+
+    async fn existing_ids(&self) -> Result<HashSet<Uuid>, sqlx::Error> {
+        match &self.backend {
+            ProductRepositoryBackend::Postgres(pool) => Ok(sqlx::query_scalar(
+                "SELECT product_id FROM product_schema.product",
+            )
+            .fetch_all(pool)
+            .await?
             .into_iter()
-            .skip(start)
-            .take(options.size)
-            .collect();
-        (page, total)
-    }
-
-    fn find_all_for_vector(&self, options: &InternalProductOptions) -> (Vec<ProductDetail>, usize) {
-        let store = self.store.read().unwrap();
-        let mut products = store
-            .products
-            .values()
-            .map(|product| product.detail.clone())
-            .collect::<Vec<_>>();
-        products.sort_by_key(|product| product.product_id);
-
-        let total = products.len();
-        let start = options.page.saturating_mul(options.size);
-        let page = products
-            .into_iter()
-            .skip(start)
-            .take(options.size)
-            .collect();
-        (page, total)
-    }
-
-    fn create(&self, product: NewProduct) -> ProductDetail {
-        let mut store = self.store.write().unwrap();
-        if let Some(product_id) = store.idempotency_keys.get(&product.idempotency_key) {
-            return store.products[product_id].detail.clone();
-        }
-
-        let product_id = Uuid::new_v4();
-        let detail = ProductDetail {
-            product_id,
-            name: product.name,
-            price: product.price,
-            category: product.category,
-            description: product.description,
-            stock: product.stock,
-            original_link: product.original_link,
-            image_url: product.image_url,
-            seller_id: product.seller_id,
-            created_at: now(),
-            updated_at: None,
-        };
-        store
-            .idempotency_keys
-            .insert(product.idempotency_key, product_id);
-        store.products.insert(
-            product_id,
-            StoredProduct {
-                detail: detail.clone(),
-                deleted_at: None,
-            },
-        );
-        detail
-    }
-
-    fn update(&self, product_id: Uuid, update: ProductUpdateRequest) -> Option<ProductDetail> {
-        let mut store = self.store.write().unwrap();
-        let product = store.products.get_mut(&product_id)?;
-        product.detail.name = update.name;
-        product.detail.price = update.price;
-        product.detail.category = update.category;
-        product.detail.description = update.description;
-        product.detail.stock = update.stock;
-        product.detail.original_link = update.original_link;
-        product.detail.image_url = update.image_url;
-        product.detail.updated_at = Some(now());
-        Some(product.detail.clone())
-    }
-
-    fn delete(&self, product_id: Uuid, seller_id: Uuid) -> DeleteProductResult {
-        let mut store = self.store.write().unwrap();
-        let Some(product) = store.products.get(&product_id) else {
-            return DeleteProductResult::NotFound;
-        };
-        if product.detail.seller_id != seller_id {
-            return DeleteProductResult::Forbidden;
-        }
-        if store.active_group_purchase.contains(&product_id) {
-            return DeleteProductResult::ActiveGroupPurchase;
-        }
-        if store.used_in_group_purchase.contains(&product_id) {
-            store.products.get_mut(&product_id).unwrap().deleted_at = Some(now());
-            DeleteProductResult::SoftDeleted
-        } else {
-            store.products.remove(&product_id);
-            store
-                .idempotency_keys
-                .retain(|_, stored_product_id| *stored_product_id != product_id);
-            DeleteProductResult::HardDeleted
+            .collect()),
+            #[cfg(test)]
+            ProductRepositoryBackend::Local(store) => {
+                Ok(store.read().unwrap().products.keys().copied().collect())
+            }
         }
     }
 }
 
+fn product_from_row(row: &PgRow) -> Result<ProductDetail, sqlx::Error> {
+    let created_at: OffsetDateTime = row.try_get("created_at")?;
+    let updated_at: Option<OffsetDateTime> = row.try_get("updated_at")?;
+    Ok(ProductDetail {
+        product_id: row.try_get("product_id")?,
+        name: row.try_get("name")?,
+        price: row.try_get("price")?,
+        category: row.try_get("category")?,
+        description: row.try_get("description")?,
+        stock: row.try_get("stock")?,
+        original_link: row.try_get("original_url")?,
+        image_url: row.try_get("image_url")?,
+        seller_id: row.try_get("seller_id")?,
+        created_at: created_at
+            .format(&Rfc3339)
+            .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
+        updated_at: updated_at
+            .map(|timestamp| timestamp.format(&Rfc3339))
+            .transpose()
+            .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
+    })
+}
+
+#[cfg(test)]
 fn now() -> String {
     OffsetDateTime::now_utc().format(&Rfc3339).unwrap()
 }
 
 #[derive(Clone)]
 struct AppState {
-    products: Arc<dyn ProductRepository>,
+    products: ProductRepository,
 }
 
 #[derive(Serialize)]
@@ -468,7 +689,7 @@ struct ApiResponse<T> {
 }
 
 fn app(
-    products: Arc<dyn ProductRepository>,
+    products: ProductRepository,
     images: ImageRepository,
     seller_balances: SellerBalanceRepository,
     auth: AuthRepository,
@@ -515,7 +736,18 @@ async fn get_products_for_vector(
             return response::<serde_json::Value>(status, None, message).into_response();
         }
     };
-    let (products, total_elements) = state.products.find_all_for_vector(&options);
+    let (products, total_elements) = match state.products.find_all_for_vector(&options).await {
+        Ok(result) => result,
+        Err(error) => {
+            eprintln!("product database error: {error}");
+            return response::<serde_json::Value>(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                None,
+                INTERNAL_ERROR_MESSAGE,
+            )
+            .into_response();
+        }
+    };
     let content = products
         .into_iter()
         .map(ProductVectorItem::from)
@@ -553,11 +785,21 @@ async fn create_product(
         Err((status, message)) => return response(status, None, message),
     };
 
-    response(
-        StatusCode::CREATED,
-        Some(ProductRegisterInfo::from(state.products.create(product))),
-        PRODUCT_CREATED_MESSAGE,
-    )
+    match state.products.create(product).await {
+        Ok(product) => response(
+            StatusCode::CREATED,
+            Some(ProductRegisterInfo::from(product)),
+            PRODUCT_CREATED_MESSAGE,
+        ),
+        Err(error) => {
+            eprintln!("product database error: {error}");
+            response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                None,
+                INTERNAL_ERROR_MESSAGE,
+            )
+        }
+    }
 }
 
 async fn update_product(
@@ -573,13 +815,21 @@ async fn update_product(
         _ => return response(StatusCode::BAD_REQUEST, None, INVALID_PARAMETER_MESSAGE),
     };
 
-    match state.products.update(product_id, update) {
-        Some(product) => response(
+    match state.products.update(product_id, update).await {
+        Ok(Some(product)) => response(
             StatusCode::OK,
             Some(ProductUpdateInfo::from(product)),
             PRODUCT_UPDATED_MESSAGE,
         ),
-        None => response(StatusCode::NOT_FOUND, None, PRODUCT_NOT_FOUND_MESSAGE),
+        Ok(None) => response(StatusCode::NOT_FOUND, None, PRODUCT_NOT_FOUND_MESSAGE),
+        Err(error) => {
+            eprintln!("product database error: {error}");
+            response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                None,
+                INTERNAL_ERROR_MESSAGE,
+            )
+        }
     }
 }
 
@@ -596,20 +846,28 @@ async fn delete_product(
         return response(StatusCode::BAD_REQUEST, None, INVALID_PARAMETER_MESSAGE);
     };
 
-    match state.products.delete(product_id, seller_id) {
-        DeleteProductResult::HardDeleted | DeleteProductResult::SoftDeleted => {
+    match state.products.delete(product_id, seller_id).await {
+        Ok(DeleteProductResult::HardDeleted | DeleteProductResult::SoftDeleted) => {
             response(StatusCode::OK, None, PRODUCT_DELETED_MESSAGE)
         }
-        DeleteProductResult::NotFound => {
+        Ok(DeleteProductResult::NotFound) => {
             response(StatusCode::NOT_FOUND, None, PRODUCT_NOT_FOUND_MESSAGE)
         }
-        DeleteProductResult::Forbidden => response(
+        Ok(DeleteProductResult::Forbidden) => response(
             StatusCode::FORBIDDEN,
             None,
             FORBIDDEN_NOT_PRODUCT_OWNER_MESSAGE,
         ),
-        DeleteProductResult::ActiveGroupPurchase => {
+        Ok(DeleteProductResult::ActiveGroupPurchase) => {
             response(StatusCode::CONFLICT, None, ACTIVE_GROUP_PURCHASE_MESSAGE)
+        }
+        Err(error) => {
+            eprintln!("product database error: {error}");
+            response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                None,
+                INTERNAL_ERROR_MESSAGE,
+            )
         }
     }
 }
@@ -670,7 +928,18 @@ async fn get_product_list(
         Ok(options) => options,
         Err((status, message)) => return response(status, None, message),
     };
-    let (products, total_elements) = state.products.find_by_seller(seller_id, &options);
+    let (products, total_elements) = match state.products.find_by_seller(seller_id, &options).await
+    {
+        Ok(result) => result,
+        Err(error) => {
+            eprintln!("product database error: {error}");
+            return response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                None,
+                INTERNAL_ERROR_MESSAGE,
+            );
+        }
+    };
     let content = products
         .into_iter()
         .map(ProductListItem::from)
@@ -781,9 +1050,17 @@ async fn get_product_detail(
         return response(StatusCode::BAD_REQUEST, None, INVALID_PARAMETER_MESSAGE);
     };
 
-    match state.products.find_by_id(product_id) {
-        Some(product) => response(StatusCode::OK, Some(product), PRODUCT_FOUND_MESSAGE),
-        None => response(StatusCode::NOT_FOUND, None, PRODUCT_NOT_FOUND_MESSAGE),
+    match state.products.find_by_id(product_id).await {
+        Ok(Some(product)) => response(StatusCode::OK, Some(product), PRODUCT_FOUND_MESSAGE),
+        Ok(None) => response(StatusCode::NOT_FOUND, None, PRODUCT_NOT_FOUND_MESSAGE),
+        Err(error) => {
+            eprintln!("product database error: {error}");
+            response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                None,
+                INTERNAL_ERROR_MESSAGE,
+            )
+        }
     }
 }
 
@@ -819,7 +1096,7 @@ async fn main() -> std::io::Result<()> {
     axum::serve(
         listener,
         app(
-            Arc::new(LocalProductRepository::new([])),
+            ProductRepository::postgres(pool.clone()),
             ImageRepository::postgres(pool.clone()),
             SellerBalanceRepository::postgres(pool.clone()),
             AuthRepository::postgres(pool),
@@ -892,7 +1169,7 @@ mod tests {
         request: Request<Body>,
     ) -> (StatusCode, serde_json::Value) {
         let response = app(
-            products,
+            (*products).clone(),
             ImageRepository::default(),
             SellerBalanceRepository::default(),
             AuthRepository::default(),
@@ -1032,7 +1309,15 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(updated["data"]["stock"], 25);
         assert_eq!(updated["data"]["name"], "수정 상품");
-        assert_eq!(products.find_by_id(product_id).unwrap().stock, 25);
+        assert_eq!(
+            products
+                .find_by_id(product_id)
+                .await
+                .unwrap()
+                .unwrap()
+                .stock,
+            25
+        );
 
         let (missing_status, missing) = write(
             products,
@@ -1105,7 +1390,11 @@ mod tests {
         )
         .await;
         assert_eq!(hard_status, StatusCode::OK);
-        assert!(products.find_by_id(hard_deleted_id).is_none());
+        assert!(products
+            .find_by_id(hard_deleted_id)
+            .await
+            .unwrap()
+            .is_none());
 
         let (soft_status, soft_body) = write(
             products.clone(),
@@ -1117,7 +1406,11 @@ mod tests {
         .await;
         assert_eq!(soft_status, StatusCode::OK);
         assert_eq!(soft_body["message"], PRODUCT_DELETED_MESSAGE);
-        assert!(products.find_by_id(soft_deleted_id).is_some());
+        assert!(products
+            .find_by_id(soft_deleted_id)
+            .await
+            .unwrap()
+            .is_some());
         assert!(products.is_soft_deleted(soft_deleted_id));
 
         let (active_status, active_body) = write(
@@ -1130,7 +1423,54 @@ mod tests {
         .await;
         assert_eq!(active_status, StatusCode::CONFLICT);
         assert_eq!(active_body["message"], ACTIVE_GROUP_PURCHASE_MESSAGE);
-        assert!(products.find_by_id(active_id).is_some());
+        assert!(products.find_by_id(active_id).await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn postgres_product_create_is_concurrently_idempotent_when_test_database_is_configured() {
+        let Ok(database_url) = std::env::var("TEST_DATABASE_URL") else {
+            return;
+        };
+        let pool = PgPoolOptions::new()
+            .max_connections(4)
+            .connect(&database_url)
+            .await
+            .unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+        let repository = ProductRepository::postgres(pool.clone());
+        let key = format!("concurrent-product-{}", Uuid::new_v4());
+        let seller_id = Uuid::new_v4();
+        let create = || NewProduct {
+            name: "동시성 상품".to_owned(),
+            price: 10_000,
+            category: "FOOD".to_owned(),
+            description: "동시에 한 번만 생성되어야 합니다.".to_owned(),
+            stock: 10,
+            original_link: None,
+            image_url: None,
+            idempotency_key: key.clone(),
+            seller_id,
+        };
+
+        let (first, second) =
+            tokio::join!(repository.create(create()), repository.create(create()));
+        let first = first.unwrap();
+        let second = second.unwrap();
+        assert_eq!(first.product_id, second.product_id);
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM product_schema.product WHERE idempotency_key=$1",
+        )
+        .bind(&key)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 1);
+
+        sqlx::query("DELETE FROM product_schema.product WHERE idempotency_key=$1")
+            .bind(&key)
+            .execute(&pool)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]

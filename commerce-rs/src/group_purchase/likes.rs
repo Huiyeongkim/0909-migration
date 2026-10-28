@@ -119,7 +119,6 @@ mod tests {
         http::Request,
     };
     use serde_json::Value;
-    use std::sync::Arc;
     use tower::ServiceExt;
 
     fn purchase(purchase_id: Uuid) -> super::super::GroupPurchase {
@@ -149,7 +148,7 @@ mod tests {
         purchase_id: Uuid,
         member_id: Option<Uuid>,
     ) -> (StatusCode, Value) {
-        let app = super::super::router(repository, Arc::new(LocalProductRepository::new([])));
+        let app = super::super::router(repository, LocalProductRepository::new([]));
         let mut request = Request::builder()
             .method(method)
             .uri(format!("/api/purchases/{purchase_id}/likes"));

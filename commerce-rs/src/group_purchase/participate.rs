@@ -245,7 +245,7 @@ impl GroupPurchaseRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{LocalProductRepository, ProductDetail, ProductRepository};
+    use crate::{LocalProductRepository, ProductDetail};
     use std::sync::Arc;
     use std::thread;
 
@@ -301,7 +301,7 @@ mod tests {
         let products = LocalProductRepository::new([product(product_id)]);
 
         assert_eq!(
-            purchases.participate(purchase_id, 2, |id| products.find_by_id(id).is_some()),
+            purchases.participate(purchase_id, 2, |id| products.contains_local(id)),
             Ok(())
         );
 
@@ -329,7 +329,7 @@ mod tests {
 
         for purchase_id in [full_id, closed_id, Uuid::new_v4()] {
             assert_eq!(
-                purchases.participate(purchase_id, 1, |id| products.find_by_id(id).is_some()),
+                purchases.participate(purchase_id, 1, |id| products.contains_local(id)),
                 Err(ParticipateError::CapacityReached)
             );
         }
@@ -343,7 +343,7 @@ mod tests {
         let products = LocalProductRepository::new([]);
 
         assert_eq!(
-            purchases.participate(purchase_id, 2, |id| products.find_by_id(id).is_some()),
+            purchases.participate(purchase_id, 2, |id| products.contains_local(id)),
             Err(ParticipateError::ProductNotFound)
         );
         assert_eq!(
@@ -370,7 +370,7 @@ mod tests {
                 let purchases = Arc::clone(&purchases);
                 let products = Arc::clone(&products);
                 thread::spawn(move || {
-                    purchases.participate(purchase_id, 1, |id| products.find_by_id(id).is_some())
+                    purchases.participate(purchase_id, 1, |id| products.contains_local(id))
                 })
             })
             .collect::<Vec<_>>();
