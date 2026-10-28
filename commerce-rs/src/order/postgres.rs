@@ -288,6 +288,15 @@ impl OrderRepository {
         sqlx::query("INSERT INTO order_schema.point_ledger(ledger_id,member_id,transaction_id,kind,amount,balance_after) VALUES($1,$2,$3,'CHARGE',$4,$5)")
             .bind(Uuid::new_v4()).bind(member_id).bind(transaction_id).bind(amount).bind(next)
             .execute(&mut *tx).await.map_err(|_| LifecycleError::Database)?;
+        crate::outbox::enqueue(
+            &mut tx,
+            "POINT_TRANSACTION",
+            transaction_id,
+            "POINT_CHARGED",
+            serde_json::json!({"memberId": member_id, "amount": amount, "balance": next}),
+        )
+        .await
+        .map_err(|_| LifecycleError::Database)?;
         tx.commit().await.map_err(|_| LifecycleError::Database)?;
         Ok(Charge {
             transaction_id,
@@ -360,6 +369,15 @@ impl OrderRepository {
         sqlx::query("INSERT INTO order_schema.point_ledger(ledger_id,member_id,transaction_id,order_id,kind,amount,balance_after,created_at) VALUES($1,$2,$3,$4,'USE',$5,$6,$7)")
             .bind(Uuid::new_v4()).bind(member_id).bind(transaction_id).bind(order_id).bind(amount).bind(next).bind(now)
             .execute(&mut *tx).await.map_err(|_| LifecycleError::Database)?;
+        crate::outbox::enqueue(
+            &mut tx,
+            "ORDER",
+            order_id,
+            "POINT_PAYMENT_COMPLETED",
+            serde_json::json!({"transactionId": transaction_id, "memberId": member_id, "amount": amount}),
+        )
+        .await
+        .map_err(|_| LifecycleError::Database)?;
         tx.commit().await.map_err(|_| LifecycleError::Database)?;
         Ok(Payment {
             order_id,
@@ -392,6 +410,15 @@ impl OrderRepository {
             }
             sqlx::query("UPDATE order_schema.\"order\" SET status='EXPIRED',updated_at=$2 WHERE order_id=$1")
                 .bind(order_id).bind(now).execute(&mut *tx).await.map_err(|_| LifecycleError::Database)?;
+            crate::outbox::enqueue(
+                &mut tx,
+                "ORDER",
+                order_id,
+                "ORDER_EXPIRED",
+                serde_json::json!({"groupPurchaseId": row.get::<Uuid, _>("group_purchase_id"), "quantity": row.get::<i32, _>("quantity")}),
+            )
+            .await
+            .map_err(|_| LifecycleError::Database)?;
             tx.commit().await.map_err(|_| LifecycleError::Database)?;
         }
         Ok(())
@@ -445,6 +472,15 @@ impl OrderRepository {
             .execute(&mut *tx).await.map_err(|_| ConfirmError::Database)?;
         sqlx::query("UPDATE order_schema.\"order\" SET status='CONFIRMED',updated_at=NOW() WHERE order_id=$1")
             .bind(order_id).execute(&mut *tx).await.map_err(|_| ConfirmError::Database)?;
+        crate::outbox::enqueue(
+            &mut tx,
+            "ORDER",
+            order_id,
+            "ORDER_CONFIRMED",
+            serde_json::json!({"memberId": member_id}),
+        )
+        .await
+        .map_err(|_| ConfirmError::Database)?;
         tx.commit().await.map_err(|_| ConfirmError::Database)?;
         Ok(())
     }
@@ -513,6 +549,15 @@ impl OrderRepository {
         .bind(order_id)
         .bind(now)
         .execute(&mut *tx)
+        .await
+        .map_err(|_| CancelError::Database)?;
+        crate::outbox::enqueue(
+            &mut tx,
+            "ORDER",
+            order_id,
+            "ORDER_CANCELLATION_REQUESTED",
+            serde_json::json!({"memberId": member_id, "reason": reason.as_str()}),
+        )
         .await
         .map_err(|_| CancelError::Database)?;
         let refund = if immediate {
@@ -593,6 +638,15 @@ impl OrderRepository {
             .bind(cancellation_id).bind(now).execute(&mut *tx).await.map_err(|_| CancelError::Database)?;
         sqlx::query("UPDATE order_schema.\"order\" SET status='PAYMENT_COMPLETED',updated_at=$2 WHERE order_id=$1")
             .bind(order_id).bind(now).execute(&mut *tx).await.map_err(|_| CancelError::Database)?;
+        crate::outbox::enqueue(
+            &mut tx,
+            "ORDER",
+            order_id,
+            "ORDER_CANCELLATION_REJECTED",
+            serde_json::json!({"sellerId": seller_id}),
+        )
+        .await
+        .map_err(|_| CancelError::Database)?;
         let row = cancellation_row(&mut tx, cancellation_id).await?;
         tx.commit().await.map_err(|_| CancelError::Database)?;
         cancellation_from_row(&row)
@@ -705,6 +759,15 @@ async fn complete_refund_postgres(
     }
     sqlx::query("UPDATE order_schema.canceled_order SET status='COMPLETED',returned_at=$2,updated_at=$2 WHERE cancellation_id=$1")
         .bind(cancellation_id).bind(now).execute(&mut **tx).await.map_err(|_| CancelError::Database)?;
+    crate::outbox::enqueue(
+        tx,
+        "ORDER",
+        order_id,
+        "ORDER_CANCELED",
+        serde_json::json!({"transactionId": transaction_id, "memberId": member_id, "refundAmount": amount}),
+    )
+    .await
+    .map_err(|_| CancelError::Database)?;
     Ok(Refund {
         transaction_id,
         order_id,
@@ -843,6 +906,14 @@ async fn insert_order(
         .bind(order.seller_id).bind(order.group_purchase_id).bind(&order.idempotency_key).bind(parse_time(&order.expired_at)?)
         .bind(parse_time(&order.created_at)?).bind(order.updated_at.as_deref().map(parse_time).transpose()?)
         .bind(order.deleted_at.as_deref().map(parse_time).transpose()?).execute(&mut **tx).await?;
+    crate::outbox::enqueue(
+        tx,
+        "ORDER",
+        order.order_id,
+        "ORDER_CREATED",
+        serde_json::json!({"memberId": order.member_id, "groupPurchaseId": order.group_purchase_id, "quantity": order.quantity, "paidPrice": order.paid_price}),
+    )
+    .await?;
     Ok(())
 }
 
