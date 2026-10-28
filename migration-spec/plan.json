@@ -90,7 +90,7 @@
     {
       "id": "seller-balance",
       "title": "Migrate seller balance and history",
-      "status": "ready",
+      "status": "complete",
       "sourcePaths": [
         "commerce/src/main/java/store/_0982/commerce/presentation/sellerbalance",
         "commerce/src/main/java/store/_0982/commerce/application/sellerbalance",
@@ -103,6 +103,9 @@
         "Seller balance data uses a PostgreSQL repository boundary",
         "All available Java and Rust verification passes",
         "legacy/commerce remains unchanged"
+      ],
+      "notes": [
+        "Internal create, member-scoped current balance and history, paging, allowlisted sorting, uniqueness, missing-seller behavior, and PostgreSQL persistence are implemented. Rust gates, the three relevant legacy tests, and legacy-clean pass. No live PostgreSQL integration test was run."
       ]
     }
   ]
