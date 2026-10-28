@@ -50,7 +50,7 @@
     {
       "id": "image-api",
       "title": "Replace product and group-purchase image APIs",
-      "status": "ready",
+      "status": "complete",
       "sourcePaths": [
         "commerce/src/main/java/store/_0982/commerce/presentation/product/ProductImageController.java",
         "commerce/src/main/java/store/_0982/commerce/presentation/grouppurchase/GroupPurchaseImageController.java",
@@ -63,6 +63,9 @@
         "No AWS credential or production S3 integration is added",
         "All available Java and Rust verification passes",
         "legacy/commerce remains unchanged"
+      ],
+      "notes": [
+        "AWS S3 is replaced by a PostgreSQL-backed local image repository. Product and group-purchase presigned PUT, multipart upload, local read, and idempotent owned deletion are covered by focused tests; Rust gates, legacy testClasses, and the legacy-clean check pass. No live PostgreSQL integration test was available."
       ]
     }
   ]
