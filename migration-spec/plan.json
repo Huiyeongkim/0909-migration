@@ -417,7 +417,7 @@
     {
       "id": "client-web",
       "title": "Build the shared React Commerce application and web entry point",
-      "status": "ready",
+      "status": "complete",
       "sourcePaths": [
         "migration-spec/contracts",
         "apps/web",
@@ -436,7 +436,7 @@
     {
       "id": "client-desktop",
       "title": "Build the Tauri Rust desktop shell for the shared React application",
-      "status": "ready",
+      "status": "complete",
       "sourcePaths": [
         "apps/desktop",
         "packages/app"
