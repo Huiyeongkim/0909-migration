@@ -429,6 +429,56 @@
       "prLabels": []
     },
     {
+      "id": "group-purchase-modularization",
+      "title": "공동구매 병렬 작업을 위한 모듈 경계 분리",
+      "status": "ready",
+      "dependencies": ["group-purchase-write"],
+      "locks": ["group-purchase-structure", "group-purchase-modularization-plan"],
+      "allowedPaths": [
+        "commerce-rs/src/group_purchase.rs",
+        "commerce-rs/src/group_purchase/**",
+        "migration-spec/contracts/group-purchase-modularization.md",
+        "migration-spec/anomalies/group-purchase-modularization.md",
+        "migration-spec/plan.json"
+      ],
+      "forbiddenPaths": ["legacy/**"],
+      "setup": [],
+      "verification": [
+        {
+          "id": "legacy-group-purchase-tests",
+          "command": [
+            "./gradlew",
+            "-p",
+            "commerce",
+            "test",
+            "--tests",
+            "store._0982.commerce.application.grouppurchase.GroupPurchaseServiceTest",
+            "--tests",
+            "store._0982.commerce.presentation.grouppurchase.GroupPurchaseControllerTest"
+          ],
+          "cwd": "legacy"
+        }
+      ],
+      "doneWhen": [
+        {
+          "id": "module-boundaries",
+          "description": "공동구매 기존 구현과 likes·participate 확장 지점이 서로 다른 모듈 파일 경계를 사용한다."
+        },
+        {
+          "id": "behavior-preserved",
+          "description": "공개 API와 기존 테스트 동작이 변경되지 않았다."
+        },
+        {
+          "id": "legacy-unchanged",
+          "description": "레거시 commerce 소스가 변경되지 않았다.",
+          "command": ["git", "diff", "--exit-code", "--", "commerce"],
+          "cwd": "legacy"
+        }
+      ],
+      "requiresApproval": false,
+      "prLabels": []
+    },
+    {
       "id": "local-auth",
       "title": "아이디·비밀번호 로컬 인증 구현",
       "status": "ready",

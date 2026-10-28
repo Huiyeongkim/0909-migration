@@ -170,6 +170,21 @@
       ]
     },
     {
+      "id": "group-purchase-modularization",
+      "title": "Split group-purchase module boundaries for parallel feature work",
+      "status": "ready",
+      "sourcePaths": [
+        "commerce/src/main/java/store/_0982/commerce/presentation/grouppurchase",
+        "commerce/src/main/java/store/_0982/commerce/application/grouppurchase"
+      ],
+      "doneWhen": [
+        "Existing group-purchase behavior remains unchanged",
+        "Likes and participation have separate Rust module file boundaries",
+        "All available Java and Rust verification passes",
+        "legacy/commerce remains unchanged"
+      ]
+    },
+    {
       "id": "local-auth",
       "title": "Replace member authentication with a local account and session boundary",
       "status": "complete",
