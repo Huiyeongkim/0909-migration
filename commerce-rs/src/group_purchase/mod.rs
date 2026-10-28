@@ -317,6 +317,10 @@ impl GroupPurchaseRepository {
             .map(|purchase| purchase.current_quantity)
     }
 
+    pub(crate) fn order_title(&self, purchase_id: Uuid) -> Option<String> {
+        self.find_by_id(purchase_id).map(|purchase| purchase.title)
+    }
+
     fn new(purchases: impl IntoIterator<Item = GroupPurchase>) -> Self {
         Self {
             purchases: Arc::new(RwLock::new(purchases.into_iter().collect())),
