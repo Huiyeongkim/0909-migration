@@ -67,13 +67,15 @@
           "id": "legacy-product-tests",
           "command": [
             "./gradlew",
+            "-p",
+            "commerce",
             "test",
             "--tests",
             "store._0982.commerce.application.product.ProductServiceTest",
             "--tests",
             "store._0982.commerce.presentation.product.ProductControllerTest"
           ],
-          "cwd": "legacy/commerce"
+          "cwd": "legacy"
         }
       ],
       "doneWhen": [
