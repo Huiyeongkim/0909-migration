@@ -67,6 +67,43 @@
       "notes": [
         "AWS S3 is replaced by a PostgreSQL-backed local image repository. Product and group-purchase presigned PUT, multipart upload, local read, and idempotent owned deletion are covered by focused tests; Rust gates, legacy testClasses, and the legacy-clean check pass. No live PostgreSQL integration test was available."
       ]
+    },
+    {
+      "id": "product-write",
+      "title": "Migrate product create, update, and delete",
+      "status": "ready",
+      "sourcePaths": [
+        "commerce/src/main/java/store/_0982/commerce/presentation/product",
+        "commerce/src/main/java/store/_0982/commerce/application/product",
+        "commerce/src/main/java/store/_0982/commerce/domain/product",
+        "commerce/src/main/java/store/_0982/commerce/infrastructure/product"
+      ],
+      "doneWhen": [
+        "Create, update, and delete HTTP contracts are documented",
+        "Validation, ownership, stock changes, and soft deletion are covered",
+        "Repository writes are isolated behind the product persistence boundary",
+        "Focused tests cover success, authorization, validation, and missing products",
+        "All available Java and Rust verification passes",
+        "legacy/commerce remains unchanged"
+      ]
+    },
+    {
+      "id": "seller-balance",
+      "title": "Migrate seller balance and history",
+      "status": "ready",
+      "sourcePaths": [
+        "commerce/src/main/java/store/_0982/commerce/presentation/sellerbalance",
+        "commerce/src/main/java/store/_0982/commerce/application/sellerbalance",
+        "commerce/src/main/java/store/_0982/commerce/domain/sellerbalance",
+        "commerce/src/main/java/store/_0982/commerce/infrastructure/sellerbalance"
+      ],
+      "doneWhen": [
+        "Create, current balance, and history HTTP contracts are documented",
+        "Member scoping, pagination, ordering, uniqueness, and missing seller behavior are covered",
+        "Seller balance data uses a PostgreSQL repository boundary",
+        "All available Java and Rust verification passes",
+        "legacy/commerce remains unchanged"
+      ]
     }
   ]
 }
