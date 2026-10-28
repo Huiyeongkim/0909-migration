@@ -172,7 +172,7 @@
     {
       "id": "group-purchase-modularization",
       "title": "Split group-purchase module boundaries for parallel feature work",
-      "status": "ready",
+      "status": "complete",
       "sourcePaths": [
         "commerce/src/main/java/store/_0982/commerce/presentation/grouppurchase",
         "commerce/src/main/java/store/_0982/commerce/application/grouppurchase"
@@ -182,6 +182,9 @@
         "Likes and participation have separate Rust module file boundaries",
         "All available Java and Rust verification passes",
         "legacy/commerce remains unchanged"
+      ],
+      "notes": [
+        "Moved the existing Rust group-purchase implementation to group_purchase/mod.rs without changing behavior and reserved separate likes.rs and participate.rs ownership boundaries for parallel follow-up units."
       ]
     },
     {

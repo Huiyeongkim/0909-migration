@@ -1,4 +1,7 @@
 use crate::{ProductDetail, ProductRepository};
+
+mod likes;
+mod participate;
 use axum::{
     extract::{rejection::JsonRejection, rejection::QueryRejection, Path, Query, State},
     http::{HeaderMap, StatusCode},
