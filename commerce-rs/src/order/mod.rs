@@ -16,7 +16,13 @@ mod read;
 
 #[derive(Clone, Default)]
 pub(crate) struct OrderRepository {
-    orders: Arc<Mutex<Vec<Order>>>,
+    store: Arc<Mutex<OrderStore>>,
+}
+
+#[derive(Default)]
+pub(super) struct OrderStore {
+    orders: Vec<Order>,
+    settlements: Vec<OrderSettlement>,
 }
 
 #[derive(Clone)]
@@ -34,10 +40,6 @@ pub(super) struct Order {
     pub(super) order_number: String,
     pub(super) quantity: i32,
     pub(super) price: i64,
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "used by the local-payment migration unit")
-    )]
     pub(super) paid_price: i64,
     pub(super) status: &'static str,
     pub(super) member_id: Uuid,
@@ -56,6 +58,28 @@ pub(super) struct Order {
     pub(super) created_at: String,
     pub(super) updated_at: Option<String>,
     pub(super) deleted_at: Option<String>,
+}
+
+#[derive(Clone)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by the later settlement-balance migration unit"
+    )
+)]
+pub(super) struct OrderSettlement {
+    pub(super) order_settlement_id: Uuid,
+    pub(super) seller_id: Uuid,
+    pub(super) group_purchase_id: Uuid,
+    pub(super) order_id: Uuid,
+    pub(super) status: &'static str,
+    pub(super) order_amount: i64,
+    pub(super) platform_fee_rate: f64,
+    pub(super) platform_fee: i64,
+    pub(super) settlement_amount: i64,
+    pub(super) created_at: String,
+    pub(super) settled_at: Option<String>,
 }
 
 pub(super) struct NewOrder {
@@ -77,7 +101,11 @@ impl OrderRepository {
     }
 
     pub(super) fn transact<T>(&self, operation: impl FnOnce(&mut Vec<Order>) -> T) -> T {
-        operation(&mut self.orders.lock().unwrap())
+        operation(&mut self.store.lock().unwrap().orders)
+    }
+
+    pub(super) fn transact_store<T>(&self, operation: impl FnOnce(&mut OrderStore) -> T) -> T {
+        operation(&mut self.store.lock().unwrap())
     }
 }
 
