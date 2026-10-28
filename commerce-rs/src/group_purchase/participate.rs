@@ -1,4 +1,5 @@
 use super::GroupPurchaseRepository;
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use uuid::Uuid;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -9,6 +10,33 @@ use uuid::Uuid;
 pub enum ParticipateError {
     CapacityReached,
     ProductNotFound,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct OrderParticipation {
+    pub(crate) group_purchase_id: Uuid,
+    pub(crate) quantity: i32,
+}
+
+#[derive(Clone)]
+pub(crate) struct OrderPurchaseSnapshot {
+    pub(crate) group_purchase_id: Uuid,
+    pub(crate) discounted_price: i64,
+    pub(crate) seller_id: Uuid,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum OrderParticipationError {
+    NotFound,
+    NotOpen,
+    Expired,
+    CapacityReached,
+    ProductNotFound,
+}
+
+pub(crate) enum OrderParticipationTransactionError<E> {
+    Participation(OrderParticipationError),
+    Commit(E),
 }
 
 impl GroupPurchaseRepository {
@@ -41,6 +69,69 @@ impl GroupPurchaseRepository {
             purchase.status = "SUCCESS".to_owned();
         }
         Ok(())
+    }
+
+    pub(crate) fn with_order_participation<T, E>(
+        &self,
+        requests: &[OrderParticipation],
+        product_exists: impl Fn(Uuid) -> bool,
+        commit: impl FnOnce(&[OrderPurchaseSnapshot]) -> Result<T, E>,
+    ) -> Result<T, OrderParticipationTransactionError<E>> {
+        let mut purchases = self.purchases.write().unwrap();
+        let original = purchases.clone();
+        let result = requests
+            .iter()
+            .map(|request| {
+                let purchase = purchases
+                    .iter_mut()
+                    .find(|purchase| purchase.group_purchase_id == request.group_purchase_id)
+                    .ok_or(OrderParticipationError::NotFound)?;
+                if purchase.status != "OPEN" {
+                    return Err(if purchase.status == "SUCCESS" {
+                        OrderParticipationError::CapacityReached
+                    } else {
+                        OrderParticipationError::NotOpen
+                    });
+                }
+                if OffsetDateTime::parse(&purchase.end_date, &Rfc3339)
+                    .is_ok_and(|end_date| end_date < OffsetDateTime::now_utc())
+                {
+                    return Err(OrderParticipationError::Expired);
+                }
+                let next_quantity = purchase
+                    .current_quantity
+                    .checked_add(request.quantity)
+                    .filter(|next| *next <= purchase.max_quantity)
+                    .ok_or(OrderParticipationError::CapacityReached)?;
+                if !product_exists(purchase.product_id) {
+                    return Err(OrderParticipationError::ProductNotFound);
+                }
+                purchase.current_quantity = next_quantity;
+                if next_quantity == purchase.max_quantity {
+                    purchase.status = "SUCCESS".to_owned();
+                }
+                Ok(OrderPurchaseSnapshot {
+                    group_purchase_id: purchase.group_purchase_id,
+                    discounted_price: purchase.discounted_price,
+                    seller_id: purchase.seller_id,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(OrderParticipationTransactionError::Participation);
+        let snapshots = match result {
+            Ok(snapshots) => snapshots,
+            Err(error) => {
+                *purchases = original;
+                return Err(error);
+            }
+        };
+        match commit(&snapshots) {
+            Ok(result) => Ok(result),
+            Err(error) => {
+                *purchases = original;
+                Err(OrderParticipationTransactionError::Commit(error))
+            }
+        }
     }
 }
 
@@ -84,7 +175,7 @@ mod tests {
             current_quantity,
             like_count: 0,
             start_date: "2026-01-01T00:00:00Z".to_owned(),
-            end_date: "2026-01-31T00:00:00Z".to_owned(),
+            end_date: "2099-01-31T00:00:00Z".to_owned(),
             seller_id: Uuid::new_v4(),
             product_id,
             image_url: None,
@@ -186,5 +277,96 @@ mod tests {
         let updated = purchases.find_by_id(purchase_id).unwrap();
         assert_eq!(updated.current_quantity, 100);
         assert_eq!(updated.status, "SUCCESS");
+    }
+
+    #[test]
+    fn order_batch_rolls_back_when_commit_fails() {
+        let purchase_id = Uuid::new_v4();
+        let product_id = Uuid::new_v4();
+        let purchases =
+            GroupPurchaseRepository::new([purchase(purchase_id, product_id, 3, 10, "OPEN")]);
+        let result = purchases.with_order_participation(
+            &[OrderParticipation {
+                group_purchase_id: purchase_id,
+                quantity: 2,
+            }],
+            |_| true,
+            |_| Err::<(), _>("repository write failed"),
+        );
+
+        assert!(matches!(
+            result,
+            Err(OrderParticipationTransactionError::Commit(
+                "repository write failed"
+            ))
+        ));
+        assert_eq!(
+            purchases.find_by_id(purchase_id).unwrap().current_quantity,
+            3
+        );
+    }
+
+    #[test]
+    fn order_batch_rolls_back_prior_items_when_a_product_is_missing() {
+        let first_id = Uuid::new_v4();
+        let first_product = Uuid::new_v4();
+        let second_id = Uuid::new_v4();
+        let missing_product = Uuid::new_v4();
+        let purchases = GroupPurchaseRepository::new([
+            purchase(first_id, first_product, 1, 10, "OPEN"),
+            purchase(second_id, missing_product, 2, 10, "OPEN"),
+        ]);
+        let result = purchases.with_order_participation(
+            &[
+                OrderParticipation {
+                    group_purchase_id: first_id,
+                    quantity: 3,
+                },
+                OrderParticipation {
+                    group_purchase_id: second_id,
+                    quantity: 4,
+                },
+            ],
+            |product_id| product_id == first_product,
+            |_| Ok::<_, ()>(()),
+        );
+
+        assert!(matches!(
+            result,
+            Err(OrderParticipationTransactionError::Participation(
+                OrderParticipationError::ProductNotFound
+            ))
+        ));
+        assert_eq!(purchases.find_by_id(first_id).unwrap().current_quantity, 1);
+        assert_eq!(purchases.find_by_id(second_id).unwrap().current_quantity, 2);
+    }
+
+    #[test]
+    fn order_batch_rejects_an_expired_open_purchase() {
+        let purchase_id = Uuid::new_v4();
+        let product_id = Uuid::new_v4();
+        let mut expired = purchase(purchase_id, product_id, 3, 10, "OPEN");
+        expired.end_date = "2020-01-01T00:00:00Z".to_owned();
+        let purchases = GroupPurchaseRepository::new([expired]);
+
+        let result = purchases.with_order_participation(
+            &[OrderParticipation {
+                group_purchase_id: purchase_id,
+                quantity: 2,
+            }],
+            |_| true,
+            |_| Ok::<_, ()>(()),
+        );
+
+        assert!(matches!(
+            result,
+            Err(OrderParticipationTransactionError::Participation(
+                OrderParticipationError::Expired
+            ))
+        ));
+        assert_eq!(
+            purchases.find_by_id(purchase_id).unwrap().current_quantity,
+            3
+        );
     }
 }

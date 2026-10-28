@@ -277,6 +277,46 @@ impl GroupPurchaseRepository {
         )
     }
 
+    #[cfg(test)]
+    pub(crate) fn for_order_tests(
+        purchases: impl IntoIterator<Item = (Uuid, Uuid, Uuid, i64, i32, i32, &'static str)>,
+    ) -> Self {
+        Self::new(purchases.into_iter().map(
+            |(
+                purchase_id,
+                product_id,
+                seller_id,
+                discounted_price,
+                current_quantity,
+                max_quantity,
+                status,
+            )| GroupPurchase {
+                group_purchase_id: purchase_id,
+                min_quantity: 1,
+                max_quantity,
+                title: "테스트 공동구매".to_owned(),
+                description: None,
+                discounted_price,
+                current_quantity,
+                like_count: 0,
+                start_date: "2026-01-01T00:00:00Z".to_owned(),
+                end_date: "2099-12-31T00:00:00Z".to_owned(),
+                seller_id,
+                product_id,
+                image_url: None,
+                status: status.to_owned(),
+                created_at: "2026-01-01T00:00:00Z".to_owned(),
+                updated_at: None,
+            },
+        ))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn order_test_quantity(&self, purchase_id: Uuid) -> Option<i32> {
+        self.find_by_id(purchase_id)
+            .map(|purchase| purchase.current_quantity)
+    }
+
     fn new(purchases: impl IntoIterator<Item = GroupPurchase>) -> Self {
         Self {
             purchases: Arc::new(RwLock::new(purchases.into_iter().collect())),
