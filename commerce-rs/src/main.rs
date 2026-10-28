@@ -24,6 +24,7 @@ mod group_purchase;
 mod image;
 mod local_auth;
 mod order;
+mod outbox;
 mod seller_balance;
 
 const PRODUCT_FOUND_MESSAGE: &str = "상품 조회가 완료되었습니다.";
@@ -1120,8 +1121,9 @@ async fn main() -> std::io::Result<()> {
             AuthRepository::postgres(pool.clone()),
             group_purchase::GroupPurchaseRepository::postgres(pool.clone()),
             cart::CartRepository::postgres(pool.clone()),
-            order::OrderRepository::postgres(pool),
-        ),
+            order::OrderRepository::postgres(pool.clone()),
+        )
+        .merge(outbox::router(pool)),
     )
     .await
 }
