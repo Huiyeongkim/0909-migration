@@ -7,7 +7,7 @@
     {
       "id": "product-get-detail",
       "title": "Migrate product detail lookup",
-      "status": "ready",
+      "status": "complete",
       "sourcePaths": [
         "commerce/src/main/java/store/_0982/commerce/presentation/product/ProductController.java",
         "commerce/src/main/java/store/_0982/commerce/application/product/ProductService.java",
@@ -20,6 +20,9 @@
         "The implementation uses a local persistence boundary",
         "All available Java and Rust verification passes",
         "legacy/commerce remains unchanged"
+      ],
+      "notes": [
+        "Axum serves the detail route through a local repository boundary; focused HTTP tests cover success, missing product, and invalid UUID. Durable storage is deferred to a later migration unit."
       ]
     }
   ]
