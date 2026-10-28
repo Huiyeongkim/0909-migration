@@ -902,6 +902,8 @@
         "commerce-rs/src/local_auth.rs",
         "commerce-rs/src/order/mod.rs",
         "commerce-rs/src/order/lifecycle.rs",
+        "commerce-rs/src/order/participants.rs",
+        "commerce-rs/src/order/cancel.rs",
         "commerce-rs/src/group_purchase/mod.rs",
         "commerce-rs/src/group_purchase/participate.rs",
         "migration-spec/anomalies/order-lifecycle-point.md",
