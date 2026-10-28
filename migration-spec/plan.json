@@ -247,7 +247,7 @@
     {
       "id": "cart",
       "title": "Migrate cart operations",
-      "status": "ready",
+      "status": "complete",
       "sourcePaths": [
         "commerce/src/main/java/store/_0982/commerce/presentation/cart",
         "commerce/src/main/java/store/_0982/commerce/application/cart",
@@ -259,6 +259,9 @@
         "OPEN validation, ownership, quantity changes, soft-zero, and paging are covered",
         "Legacy commerce sources compile and all Rust verification passes",
         "legacy/commerce remains unchanged"
+      ],
+      "notes": [
+        "Added process-local cart add, replace, soft-zero delete, member flush, and positive-quantity paging routes. Focused tests preserve OPEN-only add, ownership, existing-cart accumulation, and legacy update/soft-delete asymmetries."
       ]
     },
     {
