@@ -375,6 +375,25 @@
       ]
     },
     {
+      "id": "order-cancel",
+      "title": "Migrate order cancellation and local point refunds",
+      "status": "ready",
+      "sourcePaths": [
+        "commerce/src/main/java/store/_0982/commerce/presentation/order/CanceledOrderController.java",
+        "commerce/src/main/java/store/_0982/commerce/presentation/order/OrderCronController.java",
+        "commerce/src/main/java/store/_0982/commerce/application/order/CanceledOrderService.java",
+        "commerce/src/main/java/store/_0982/commerce/application/order/OrderCancellationPolicyResolver.java"
+      ],
+      "doneWhen": [
+        "Request, list, seller approval/rejection, retry, and auto-approval contracts are documented",
+        "Approved seller-rejection recovery, time boundaries, nonnegative refund, member-scoped idempotency, and soft-delete rules are recorded",
+        "Local point refund, cancellation state, participation decrease, and settlement ledger changes are atomic",
+        "Policy boundaries, low-value orders, authorization, concurrency, retry, approval, rejection, and rollback are covered",
+        "Legacy cancellation tests and all Rust verification pass",
+        "legacy/commerce remains unchanged"
+      ]
+    },
+    {
       "id": "local-auth",
       "title": "Replace member authentication with a local account and session boundary",
       "status": "complete",
