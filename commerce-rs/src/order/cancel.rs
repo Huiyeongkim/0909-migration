@@ -41,7 +41,7 @@ const REFUND_POLICY: &str = "CANCEL_POLICY_REFUND_V1";
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum CancelReason {
+pub(super) enum CancelReason {
     GroupPurchaseFailed,
     ChangeOfMind,
     ProductDefect,
@@ -50,7 +50,7 @@ enum CancelReason {
 }
 
 impl CancelReason {
-    fn as_str(self) -> &'static str {
+    pub(super) fn as_str(self) -> &'static str {
         match self {
             Self::GroupPurchaseFailed => "GROUP_PURCHASE_FAILED",
             Self::ChangeOfMind => "CHANGE_OF_MIND",
@@ -60,11 +60,11 @@ impl CancelReason {
         }
     }
 
-    fn is_buyer_fault(self) -> bool {
+    pub(super) fn is_buyer_fault(self) -> bool {
         self == Self::ChangeOfMind
     }
 
-    fn is_seller_fault(self) -> bool {
+    pub(super) fn is_seller_fault(self) -> bool {
         matches!(
             self,
             Self::ProductDefect | Self::DeliveryDelay | Self::OutOfStock
@@ -130,7 +130,7 @@ struct RefundLog {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum CancelError {
+pub(super) enum CancelError {
     OrderNotFound,
     CancellationNotFound,
     InvalidOrderStatus,
@@ -145,11 +145,11 @@ enum CancelError {
 }
 
 #[derive(Clone, Copy)]
-struct RefundPolicy {
-    id: &'static str,
-    refund: i64,
-    fee: i64,
-    shipping: i64,
+pub(super) struct RefundPolicy {
+    pub id: &'static str,
+    pub refund: i64,
+    pub fee: i64,
+    pub shipping: i64,
 }
 
 pub(super) fn router() -> Router<OrderState> {
@@ -195,13 +195,37 @@ async fn request_cancellation(
     {
         return invalid_parameter_response();
     }
-    match state.orders.request_cancellation(
-        &state.group_purchases,
-        member_id,
-        order_id,
-        request,
-        OffsetDateTime::now_utc(),
-    ) {
+    let now = OffsetDateTime::now_utc();
+    let result = if state.orders.pool().is_some() {
+        state
+            .orders
+            .request_cancel_postgres(
+                member_id,
+                order_id,
+                request.reason,
+                &request.detail_reason,
+                &request.idempotency_key,
+                now,
+            )
+            .await
+            .map(|(cancellation, refund)| {
+                (
+                    cancellation,
+                    refund.map(|refund| RefundLog {
+                        event: "local_point_refund",
+                        transaction_id: refund.transaction_id,
+                        order_id: refund.order_id,
+                        amount: refund.amount,
+                    }),
+                )
+            })
+            .map_err(postgres_cancel_error)
+    } else {
+        state
+            .orders
+            .request_cancellation(&state.group_purchases, member_id, order_id, request, now)
+    };
+    match result {
         Ok((_, refund)) => {
             log_refunds(refund);
             api_response::<()>(StatusCode::OK, None, CANCEL_CREATED_MESSAGE)
@@ -215,7 +239,7 @@ async fn list_buyer_cancellations(
     headers: HeaderMap,
     query: Result<Query<ListQuery>, QueryRejection>,
 ) -> Response {
-    list_cancellations(state, headers, query, false)
+    list_cancellations(state, headers, query, false).await
 }
 
 async fn list_pending_cancellations(
@@ -223,10 +247,10 @@ async fn list_pending_cancellations(
     headers: HeaderMap,
     query: Result<Query<ListQuery>, QueryRejection>,
 ) -> Response {
-    list_cancellations(state, headers, query, true)
+    list_cancellations(state, headers, query, true).await
 }
 
-fn list_cancellations(
+async fn list_cancellations(
     state: OrderState,
     headers: HeaderMap,
     query: Result<Query<ListQuery>, QueryRejection>,
@@ -250,37 +274,50 @@ fn list_cancellations(
         Some("createdAt,desc") => true,
         Some(_) => return invalid_parameter_response(),
     };
-    let (cancellations, total_elements) = state.orders.transact_store(|store| {
-        let mut cancellations = store
-            .cancellations
-            .iter()
-            .filter(|cancellation| {
-                store.orders.iter().any(|order| {
-                    order.order_id == cancellation.order_id && order.deleted_at.is_none()
-                }) && if seller_pending {
-                    cancellation.seller_id == member_id && cancellation.status == "PENDING"
-                } else {
-                    cancellation.member_id == member_id
-                }
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        cancellations.sort_by(|left, right| {
-            let ordering = left.created_at.cmp(&right.created_at);
-            if descending {
-                ordering.reverse()
-            } else {
-                ordering
+    let mut cancellations = if state.orders.pool().is_some() {
+        match state
+            .orders
+            .list_cancellations_postgres(member_id, seller_pending)
+            .await
+        {
+            Ok(items) => items,
+            Err(error_value) => {
+                eprintln!("order cancellation database error: {error_value:?}");
+                return error_response(CancelError::Internal);
             }
-        });
-        let total = cancellations.len();
-        let content = cancellations
-            .into_iter()
-            .skip(page.saturating_mul(size))
-            .take(size)
-            .collect::<Vec<_>>();
-        (content, total)
+        }
+    } else {
+        state.orders.transact_store(|store| {
+            store
+                .cancellations
+                .iter()
+                .filter(|cancellation| {
+                    store.orders.iter().any(|order| {
+                        order.order_id == cancellation.order_id && order.deleted_at.is_none()
+                    }) && if seller_pending {
+                        cancellation.seller_id == member_id && cancellation.status == "PENDING"
+                    } else {
+                        cancellation.member_id == member_id
+                    }
+                })
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+    };
+    cancellations.sort_by(|left, right| {
+        let ordering = left.created_at.cmp(&right.created_at);
+        if descending {
+            ordering.reverse()
+        } else {
+            ordering
+        }
     });
+    let total_elements = cancellations.len();
+    let cancellations = cancellations
+        .into_iter()
+        .skip(page.saturating_mul(size))
+        .take(size)
+        .collect::<Vec<_>>();
     let content = cancellations
         .iter()
         .map(OrderCancelInfo::from)
@@ -318,10 +355,29 @@ async fn approve_cancellation(
     let Ok(order_id) = Uuid::parse_str(&order_id) else {
         return invalid_parameter_response();
     };
-    match state
-        .orders
-        .approve_cancellation(&state.group_purchases, member_id, order_id)
-    {
+    let result = if state.orders.pool().is_some() {
+        state
+            .orders
+            .approve_cancel_postgres(member_id, order_id, OffsetDateTime::now_utc())
+            .await
+            .map(|(cancellation, refund)| {
+                (
+                    cancellation,
+                    RefundLog {
+                        event: "local_point_refund",
+                        transaction_id: refund.transaction_id,
+                        order_id: refund.order_id,
+                        amount: refund.amount,
+                    },
+                )
+            })
+            .map_err(postgres_cancel_error)
+    } else {
+        state
+            .orders
+            .approve_cancellation(&state.group_purchases, member_id, order_id)
+    };
+    match result {
         Ok((cancellation, refund)) => {
             log_refunds(Some(refund));
             api_response(
@@ -346,7 +402,16 @@ async fn reject_cancellation(
     let Ok(order_id) = Uuid::parse_str(&order_id) else {
         return invalid_parameter_response();
     };
-    match state.orders.reject_cancellation(member_id, order_id) {
+    let result = if state.orders.pool().is_some() {
+        state
+            .orders
+            .reject_cancel_postgres(member_id, order_id, OffsetDateTime::now_utc())
+            .await
+            .map_err(postgres_cancel_error)
+    } else {
+        state.orders.reject_cancellation(member_id, order_id)
+    };
+    match result {
         Ok(cancellation) => api_response(
             StatusCode::OK,
             Some(OrderCancelInfo::from(&cancellation)),
@@ -357,7 +422,28 @@ async fn reject_cancellation(
 }
 
 async fn retry_cancellations(State(state): State<OrderState>) -> Response {
-    match state.orders.retry_cancellations(OffsetDateTime::now_utc()) {
+    let now = OffsetDateTime::now_utc();
+    let result = if state.orders.pool().is_some() {
+        state
+            .orders
+            .retry_cancellations_postgres(now)
+            .await
+            .map(|refunds| {
+                refunds
+                    .into_iter()
+                    .map(|refund| RefundLog {
+                        event: "local_point_refund",
+                        transaction_id: refund.transaction_id,
+                        order_id: refund.order_id,
+                        amount: refund.amount,
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .map_err(postgres_cancel_error)
+    } else {
+        state.orders.retry_cancellations(now)
+    };
+    match result {
         Ok(refunds) => {
             log_refunds(refunds);
             api_response::<()>(StatusCode::OK, None, RETRY_MESSAGE)
@@ -367,10 +453,30 @@ async fn retry_cancellations(State(state): State<OrderState>) -> Response {
 }
 
 async fn auto_approve_cancellations(State(state): State<OrderState>) -> Response {
-    match state
-        .orders
-        .auto_approve_cancellations(&state.group_purchases, OffsetDateTime::now_utc())
-    {
+    let now = OffsetDateTime::now_utc();
+    let result = if state.orders.pool().is_some() {
+        state
+            .orders
+            .auto_approve_cancellations_postgres(now)
+            .await
+            .map(|refunds| {
+                refunds
+                    .into_iter()
+                    .map(|refund| RefundLog {
+                        event: "local_point_refund",
+                        transaction_id: refund.transaction_id,
+                        order_id: refund.order_id,
+                        amount: refund.amount,
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .map_err(postgres_cancel_error)
+    } else {
+        state
+            .orders
+            .auto_approve_cancellations(&state.group_purchases, now)
+    };
+    match result {
         Ok(refunds) => {
             log_refunds(refunds);
             api_response::<()>(StatusCode::OK, None, RETRY_MESSAGE)
@@ -753,7 +859,7 @@ fn complete_refund(
     })
 }
 
-fn resolve_policy(
+pub(super) fn resolve_policy(
     reason: CancelReason,
     paid_amount: i64,
     succeeded_at: Option<&str>,
@@ -877,6 +983,23 @@ fn error_response(error: CancelError) -> Response {
         CancelError::Internal => (StatusCode::INTERNAL_SERVER_ERROR, INTERNAL_ERROR_MESSAGE),
     };
     api_response::<()>(status, None, message)
+}
+
+fn postgres_cancel_error(error: super::postgres::CancelError) -> CancelError {
+    use super::postgres::CancelError as Error;
+    match error {
+        Error::OrderNotFound => CancelError::OrderNotFound,
+        Error::CancellationNotFound => CancelError::CancellationNotFound,
+        Error::InvalidOrderStatus => CancelError::InvalidOrderStatus,
+        Error::CancellationNotAllowed => CancelError::CancellationNotAllowed,
+        Error::InvalidCancelStatus => CancelError::InvalidCancelStatus,
+        Error::BuyerForbidden => CancelError::BuyerForbidden,
+        Error::SellerForbidden => CancelError::SellerForbidden,
+        Error::PurchaseNotFound => CancelError::PurchaseNotFound,
+        Error::Quantity => CancelError::Quantity,
+        Error::DuplicateRequest => CancelError::DuplicateRequest,
+        Error::Database => CancelError::Internal,
+    }
 }
 
 fn log_refunds(refunds: impl IntoIterator<Item = RefundLog>) {

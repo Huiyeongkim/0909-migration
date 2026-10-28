@@ -121,10 +121,23 @@ async fn charge_points(
     let Ok(Json(request)) = request else {
         return api_response::<()>(StatusCode::BAD_REQUEST, None, INVALID_PARAMETER_MESSAGE);
     };
-    match state
-        .orders
-        .charge(member_id, request.transaction_id, request.amount)
-    {
+    let result = if state.orders.pool().is_some() {
+        state
+            .orders
+            .charge_postgres(member_id, request.transaction_id, request.amount)
+            .await
+            .map(|info| ChargeInfo {
+                transaction_id: info.transaction_id,
+                amount: info.amount,
+                balance: info.balance,
+            })
+            .map_err(postgres_lifecycle_error)
+    } else {
+        state
+            .orders
+            .charge(member_id, request.transaction_id, request.amount)
+    };
+    match result {
         Ok(info) => api_response(StatusCode::OK, Some(info), CHARGED_MESSAGE),
         Err(error) => lifecycle_error_response(error),
     }
@@ -146,12 +159,28 @@ async fn pay_order(
     let Ok(Json(request)) = request else {
         return api_response::<()>(StatusCode::BAD_REQUEST, None, INVALID_PARAMETER_MESSAGE);
     };
-    match state.orders.pay(
-        member_id,
-        order_id,
-        request.transaction_id,
-        OffsetDateTime::now_utc(),
-    ) {
+    let now = OffsetDateTime::now_utc();
+    let result = if state.orders.pool().is_some() {
+        state
+            .orders
+            .pay_postgres(member_id, order_id, request.transaction_id, now)
+            .await
+            .map(|info| PaymentInfo {
+                order_id: info.order_id,
+                transaction_id: info.transaction_id,
+                amount: info.amount,
+                balance: info.balance,
+                status: "PAYMENT_COMPLETED",
+                payment_method: "POINT",
+                paid_at: info.paid_at,
+            })
+            .map_err(postgres_lifecycle_error)
+    } else {
+        state
+            .orders
+            .pay(member_id, order_id, request.transaction_id, now)
+    };
+    match result {
         Ok(info) => {
             log_payment(&info);
             api_response(StatusCode::OK, Some(info), PAID_MESSAGE)
@@ -161,10 +190,18 @@ async fn pay_order(
 }
 
 async fn expire_orders(State(state): State<OrderState>) -> Response {
-    match state
-        .orders
-        .expire_pending(&state.group_purchases, OffsetDateTime::now_utc())
-    {
+    let result = if state.orders.pool().is_some() {
+        state
+            .orders
+            .expire_postgres(OffsetDateTime::now_utc())
+            .await
+            .map_err(postgres_lifecycle_error)
+    } else {
+        state
+            .orders
+            .expire_pending(&state.group_purchases, OffsetDateTime::now_utc())
+    };
+    match result {
         Ok(()) => api_response::<()>(StatusCode::OK, None, EXPIRED_MESSAGE),
         Err(error) => lifecycle_error_response(error),
     }
@@ -418,6 +455,22 @@ fn lifecycle_error_response(error: LifecycleError) -> Response {
         }
     };
     api_response::<()>(status, None, message)
+}
+
+fn postgres_lifecycle_error(error: super::postgres::LifecycleError) -> LifecycleError {
+    use super::postgres::LifecycleError as Error;
+    match error {
+        Error::InvalidAmount => LifecycleError::InvalidAmount,
+        Error::BalanceOverflow => LifecycleError::BalanceOverflow,
+        Error::OrderNotFound => LifecycleError::OrderNotFound,
+        Error::Forbidden => LifecycleError::Forbidden,
+        Error::InvalidStatus => LifecycleError::InvalidStatus,
+        Error::Expired => LifecycleError::Expired,
+        Error::InsufficientPoints => LifecycleError::InsufficientPoints,
+        Error::DuplicateTransaction => LifecycleError::DuplicateTransaction,
+        Error::Quantity => LifecycleError::Quantity,
+        Error::Database => LifecycleError::Internal,
+    }
 }
 
 fn api_response<T: Serialize>(

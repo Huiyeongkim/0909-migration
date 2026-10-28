@@ -118,12 +118,25 @@ async fn get_order(
     let Ok(order_id) = Uuid::parse_str(&order_id) else {
         return error(StatusCode::BAD_REQUEST, INVALID_PARAMETER_MESSAGE);
     };
-    let order = state.orders.transact(|orders| {
-        orders
-            .iter()
-            .find(|order| order.order_id == order_id && order.deleted_at.is_none())
-            .cloned()
-    });
+    let order = if state.orders.pool().is_some() {
+        match state.orders.find_postgres(order_id).await {
+            Ok(order) => order,
+            Err(error_value) => {
+                eprintln!("order database error: {error_value}");
+                return error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "서버 내부 오류가 발생했습니다.",
+                );
+            }
+        }
+    } else {
+        state.orders.transact(|orders| {
+            orders
+                .iter()
+                .find(|order| order.order_id == order_id && order.deleted_at.is_none())
+                .cloned()
+        })
+    };
     let Some(order) = order else {
         return error(StatusCode::NOT_FOUND, ORDER_NOT_FOUND_MESSAGE);
     };
@@ -180,38 +193,68 @@ async fn list_orders(
             Err(()) => return error(StatusCode::BAD_REQUEST, INVALID_PARAMETER_MESSAGE),
         }
     };
-    let (orders, total_elements) = state.orders.transact(|orders| {
-        let mut orders = orders
-            .iter()
-            .filter(|order| {
-                order.deleted_at.is_none()
-                    && if seller_view {
-                        order.seller_id == member_id
-                    } else {
-                        order.member_id == member_id
-                    }
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        orders.sort_by(|left, right| {
-            let order = left.created_at.cmp(&right.created_at);
-            if descending {
-                order.reverse()
-            } else {
-                order
+    let mut orders = if state.orders.pool().is_some() {
+        match state.orders.list_postgres(member_id, seller_view).await {
+            Ok(orders) => orders,
+            Err(error_value) => {
+                eprintln!("order database error: {error_value}");
+                return error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "서버 내부 오류가 발생했습니다.",
+                );
             }
-        });
-        let total = orders.len();
-        let content = orders
-            .into_iter()
-            .skip(page.saturating_mul(size))
-            .take(size)
-            .collect::<Vec<_>>();
-        (content, total)
+        }
+    } else {
+        state.orders.transact(|orders| {
+            orders
+                .iter()
+                .filter(|order| {
+                    order.deleted_at.is_none()
+                        && if seller_view {
+                            order.seller_id == member_id
+                        } else {
+                            order.member_id == member_id
+                        }
+                })
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+    };
+    orders.sort_by(|left, right| {
+        let order = left.created_at.cmp(&right.created_at);
+        if descending {
+            order.reverse()
+        } else {
+            order
+        }
     });
-    let content = orders
+    let total_elements = orders.len();
+    let orders = orders
         .into_iter()
-        .map(|order| OrderInfo {
+        .skip(page.saturating_mul(size))
+        .take(size)
+        .collect::<Vec<_>>();
+    let mut content = Vec::with_capacity(orders.len());
+    for order in orders {
+        let group_purchase_name = if state.group_purchases.pool().is_some() {
+            match state
+                .group_purchases
+                .persisted_order_title(order.group_purchase_id)
+                .await
+            {
+                Ok(title) => title,
+                Err(error_value) => {
+                    eprintln!("group purchase database error: {error_value}");
+                    return error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "서버 내부 오류가 발생했습니다.",
+                    );
+                }
+            }
+        } else {
+            state.group_purchases.order_title(order.group_purchase_id)
+        };
+        content.push(OrderInfo {
             order_id: order.order_id,
             order_number: order.order_number,
             status: order.status,
@@ -219,10 +262,10 @@ async fn list_orders(
             price: order.price,
             total_amount: order.price.wrapping_mul(i64::from(order.quantity)),
             group_purchase_id: order.group_purchase_id,
-            group_purchase_name: state.group_purchases.order_title(order.group_purchase_id),
+            group_purchase_name,
             created_at: order.created_at,
-        })
-        .collect::<Vec<_>>();
+        });
+    }
     let number_of_elements = content.len();
     let total_pages = total_elements.div_ceil(size);
     api_response(

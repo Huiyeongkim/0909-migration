@@ -35,17 +35,35 @@ async fn get_participants(
         )
             .into_response();
     };
-    let participants = state.orders.transact(|orders| {
-        orders
-            .iter()
-            .filter(|order| {
-                order.group_purchase_id == group_purchase_id
-                    && order.status == "PAYMENT_COMPLETED"
-                    && order.deleted_at.is_none()
-            })
-            .map(|order| order.member_id)
-            .collect::<Vec<_>>()
-    });
+    let participants = if state.orders.pool().is_some() {
+        match state.orders.participants_postgres(group_purchase_id).await {
+            Ok(participants) => participants,
+            Err(error_value) => {
+                eprintln!("order database error: {error_value}");
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({
+                        "status": 500,
+                        "data": null,
+                        "message": "서버 내부 오류가 발생했습니다.",
+                    })),
+                )
+                    .into_response();
+            }
+        }
+    } else {
+        state.orders.transact(|orders| {
+            orders
+                .iter()
+                .filter(|order| {
+                    order.group_purchase_id == group_purchase_id
+                        && order.status == "PAYMENT_COMPLETED"
+                        && order.deleted_at.is_none()
+                })
+                .map(|order| order.member_id)
+                .collect::<Vec<_>>()
+        })
+    };
     Json(participants).into_response()
 }
 

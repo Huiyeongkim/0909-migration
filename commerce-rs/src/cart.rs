@@ -7,6 +7,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use sqlx::{postgres::PgRow, PgPool, Row};
 use std::sync::{Arc, RwLock};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use uuid::Uuid;
@@ -22,10 +23,18 @@ const CART_DELETED_MESSAGE: &str = "장바구니에서 공동구매상품이 제
 const CART_UPDATED_MESSAGE: &str = "장바구니에 담은 공동구매상품의 개수가 변경되었습니다.";
 const CART_LIST_MESSAGE: &str = "장바구니에 담긴 공동구매상품 리스트";
 const CART_FLUSHED_MESSAGE: &str = "장바구니를 비웠습니다.";
+const INTERNAL_ERROR_MESSAGE: &str = "서버 내부 오류가 발생했습니다.";
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub(crate) struct CartRepository {
+    pool: Option<PgPool>,
     carts: Arc<RwLock<Vec<Cart>>>,
+}
+
+impl Default for CartRepository {
+    fn default() -> Self {
+        Self::empty()
+    }
 }
 
 #[derive(Clone)]
@@ -135,7 +144,17 @@ impl From<Cart> for CartInfo {
 
 impl CartRepository {
     pub(crate) fn empty() -> Self {
-        Self::default()
+        Self {
+            pool: None,
+            carts: Arc::new(RwLock::new(Vec::new())),
+        }
+    }
+
+    pub(crate) fn postgres(pool: PgPool) -> Self {
+        Self {
+            pool: Some(pool),
+            carts: Arc::new(RwLock::new(Vec::new())),
+        }
     }
 
     #[cfg(test)]
@@ -194,19 +213,6 @@ impl CartRepository {
         ChangeResult::Changed(cart.clone())
     }
 
-    fn soft_delete(&self, cart_id: Uuid, member_id: Uuid) -> ChangeResult {
-        let mut carts = self.carts.write().unwrap();
-        let Some(cart) = carts.iter_mut().find(|cart| cart.cart_id == cart_id) else {
-            return ChangeResult::NotFound;
-        };
-        if cart.member_id != member_id {
-            return ChangeResult::Forbidden;
-        }
-        cart.quantity = 0;
-        cart.updated_at = Some(now());
-        ChangeResult::Changed(cart.clone())
-    }
-
     fn page(&self, member_id: Uuid, page: usize, size: usize) -> (Vec<Cart>, usize) {
         let carts = self.carts.read().unwrap();
         let matching = carts
@@ -230,6 +236,105 @@ impl CartRepository {
         {
             cart.quantity = 0;
         }
+    }
+
+    async fn persisted_add(
+        &self,
+        member_id: Uuid,
+        group_purchase_id: Uuid,
+        quantity: i32,
+    ) -> Result<Cart, sqlx::Error> {
+        let Some(pool) = &self.pool else {
+            return Ok(self.add(member_id, group_purchase_id, quantity));
+        };
+        let row = sqlx::query("INSERT INTO order_schema.shopping_cart (shopping_cart_id,member_id,group_purchase_id,quantity,created_at,updated_at) VALUES ($1,$2,$3,$4,NOW(),NOW()) ON CONFLICT (member_id,group_purchase_id) DO UPDATE SET quantity=order_schema.shopping_cart.quantity+EXCLUDED.quantity,updated_at=NOW() RETURNING shopping_cart_id,member_id,group_purchase_id,quantity,created_at,updated_at")
+            .bind(Uuid::new_v4())
+            .bind(member_id)
+            .bind(group_purchase_id)
+            .bind(quantity)
+            .fetch_one(pool)
+            .await?;
+        cart_from_row(&row)
+    }
+
+    async fn persisted_update(
+        &self,
+        cart_id: Uuid,
+        member_id: Uuid,
+        quantity: i32,
+    ) -> Result<ChangeResult, sqlx::Error> {
+        let Some(pool) = &self.pool else {
+            return Ok(self.update(cart_id, member_id, quantity));
+        };
+        let row = sqlx::query("UPDATE order_schema.shopping_cart SET quantity=$3,updated_at=NOW() WHERE shopping_cart_id=$1 AND member_id=$2 RETURNING shopping_cart_id,member_id,group_purchase_id,quantity,created_at,updated_at")
+            .bind(cart_id)
+            .bind(member_id)
+            .bind(quantity)
+            .fetch_optional(pool)
+            .await?;
+        if let Some(row) = row {
+            return Ok(ChangeResult::Changed(cart_from_row(&row)?));
+        }
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM order_schema.shopping_cart WHERE shopping_cart_id=$1)",
+        )
+        .bind(cart_id)
+        .fetch_one(pool)
+        .await?;
+        Ok(if exists {
+            ChangeResult::Forbidden
+        } else {
+            ChangeResult::NotFound
+        })
+    }
+
+    async fn persisted_soft_delete(
+        &self,
+        cart_id: Uuid,
+        member_id: Uuid,
+    ) -> Result<ChangeResult, sqlx::Error> {
+        self.persisted_update(cart_id, member_id, 0).await
+    }
+
+    async fn persisted_page(
+        &self,
+        member_id: Uuid,
+        page: usize,
+        size: usize,
+    ) -> Result<(Vec<Cart>, usize), sqlx::Error> {
+        let Some(pool) = &self.pool else {
+            return Ok(self.page(member_id, page, size));
+        };
+        let total: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM order_schema.shopping_cart WHERE member_id=$1 AND quantity>0",
+        )
+        .bind(member_id)
+        .fetch_one(pool)
+        .await?;
+        let rows = sqlx::query("SELECT shopping_cart_id,member_id,group_purchase_id,quantity,created_at,updated_at FROM order_schema.shopping_cart WHERE member_id=$1 AND quantity>0 ORDER BY created_at LIMIT $2 OFFSET $3")
+            .bind(member_id)
+            .bind(i64::try_from(size).unwrap_or(i64::MAX))
+            .bind(i64::try_from(page.saturating_mul(size)).unwrap_or(i64::MAX))
+            .fetch_all(pool)
+            .await?;
+        Ok((
+            rows.iter().map(cart_from_row).collect::<Result<_, _>>()?,
+            usize::try_from(total).unwrap_or(usize::MAX),
+        ))
+    }
+
+    async fn persisted_flush(&self, member_id: Uuid) -> Result<(), sqlx::Error> {
+        let Some(pool) = &self.pool else {
+            self.flush(member_id);
+            return Ok(());
+        };
+        sqlx::query(
+            "UPDATE order_schema.shopping_cart SET quantity=0,updated_at=NOW() WHERE member_id=$1",
+        )
+        .bind(member_id)
+        .execute(pool)
+        .await?;
+        Ok(())
     }
 
     pub(crate) fn with_order_carts<T, E>(
@@ -309,12 +414,30 @@ async fn add(
     if quantity < 1 {
         return error(StatusCode::BAD_REQUEST, INVALID_PARAMETER_MESSAGE);
     }
-    match state.group_purchases.cart_availability(group_purchase_id) {
-        None => return error(StatusCode::NOT_FOUND, PURCHASE_NOT_FOUND_MESSAGE),
-        Some(false) => return error(StatusCode::BAD_REQUEST, PURCHASE_UNAVAILABLE_MESSAGE),
-        Some(true) => {}
+    match state
+        .group_purchases
+        .persisted_cart_availability(group_purchase_id)
+        .await
+    {
+        Ok(None) => return error(StatusCode::NOT_FOUND, PURCHASE_NOT_FOUND_MESSAGE),
+        Ok(Some(false)) => return error(StatusCode::BAD_REQUEST, PURCHASE_UNAVAILABLE_MESSAGE),
+        Ok(Some(true)) => {}
+        Err(error_value) => {
+            eprintln!("cart database error: {error_value}");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, INTERNAL_ERROR_MESSAGE);
+        }
     }
-    let cart = state.carts.add(member_id, group_purchase_id, quantity);
+    let cart = match state
+        .carts
+        .persisted_add(member_id, group_purchase_id, quantity)
+        .await
+    {
+        Ok(cart) => cart,
+        Err(error_value) => {
+            eprintln!("cart database error: {error_value}");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, INTERNAL_ERROR_MESSAGE);
+        }
+    };
     api_response(
         StatusCode::CREATED,
         Some(CartInfo::from(cart)),
@@ -340,14 +463,22 @@ async fn update(
     if quantity < 1 {
         return error(StatusCode::BAD_REQUEST, INVALID_PARAMETER_MESSAGE);
     }
-    match state.carts.update(cart_id, member_id, quantity) {
-        ChangeResult::Changed(cart) => api_response(
+    match state
+        .carts
+        .persisted_update(cart_id, member_id, quantity)
+        .await
+    {
+        Ok(ChangeResult::Changed(cart)) => api_response(
             StatusCode::OK,
             Some(CartInfo::from(cart)),
             CART_UPDATED_MESSAGE,
         ),
-        ChangeResult::NotFound => error(StatusCode::NOT_FOUND, CART_NOT_FOUND_MESSAGE),
-        ChangeResult::Forbidden => error(StatusCode::FORBIDDEN, NOT_CART_OWNER_MESSAGE),
+        Ok(ChangeResult::NotFound) => error(StatusCode::NOT_FOUND, CART_NOT_FOUND_MESSAGE),
+        Ok(ChangeResult::Forbidden) => error(StatusCode::FORBIDDEN, NOT_CART_OWNER_MESSAGE),
+        Err(error_value) => {
+            eprintln!("cart database error: {error_value}");
+            error(StatusCode::INTERNAL_SERVER_ERROR, INTERNAL_ERROR_MESSAGE)
+        }
     }
 }
 
@@ -366,10 +497,16 @@ async fn delete(
     let Some(cart_id) = request.cart_id else {
         return error(StatusCode::BAD_REQUEST, INVALID_PARAMETER_MESSAGE);
     };
-    match state.carts.soft_delete(cart_id, member_id) {
-        ChangeResult::Changed(_) => api_response::<()>(StatusCode::OK, None, CART_DELETED_MESSAGE),
-        ChangeResult::NotFound => error(StatusCode::NOT_FOUND, CART_NOT_FOUND_MESSAGE),
-        ChangeResult::Forbidden => error(StatusCode::FORBIDDEN, NOT_CART_OWNER_MESSAGE),
+    match state.carts.persisted_soft_delete(cart_id, member_id).await {
+        Ok(ChangeResult::Changed(_)) => {
+            api_response::<()>(StatusCode::OK, None, CART_DELETED_MESSAGE)
+        }
+        Ok(ChangeResult::NotFound) => error(StatusCode::NOT_FOUND, CART_NOT_FOUND_MESSAGE),
+        Ok(ChangeResult::Forbidden) => error(StatusCode::FORBIDDEN, NOT_CART_OWNER_MESSAGE),
+        Err(error_value) => {
+            eprintln!("cart database error: {error_value}");
+            error(StatusCode::INTERNAL_SERVER_ERROR, INTERNAL_ERROR_MESSAGE)
+        }
     }
 }
 
@@ -391,7 +528,13 @@ async fn list(
     if size == 0 {
         return error(StatusCode::BAD_REQUEST, INVALID_PARAMETER_MESSAGE);
     }
-    let (content, total_elements) = state.carts.page(member_id, page, size);
+    let (content, total_elements) = match state.carts.persisted_page(member_id, page, size).await {
+        Ok(result) => result,
+        Err(error_value) => {
+            eprintln!("cart database error: {error_value}");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, INTERNAL_ERROR_MESSAGE);
+        }
+    };
     let content = content.into_iter().map(CartInfo::from).collect::<Vec<_>>();
     let number_of_elements = content.len();
     let total_pages = total_elements.div_ceil(size);
@@ -415,7 +558,10 @@ async fn flush(State(state): State<CartState>, headers: HeaderMap) -> Response {
         Ok(member_id) => member_id,
         Err((status, message)) => return error(status, message),
     };
-    state.carts.flush(member_id);
+    if let Err(error_value) = state.carts.persisted_flush(member_id).await {
+        eprintln!("cart database error: {error_value}");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, INTERNAL_ERROR_MESSAGE);
+    }
     api_response::<()>(StatusCode::OK, None, CART_FLUSHED_MESSAGE)
 }
 
@@ -431,6 +577,24 @@ fn member_id(headers: &HeaderMap) -> Result<Uuid, (StatusCode, &'static str)> {
 
 fn now() -> String {
     OffsetDateTime::now_utc().format(&Rfc3339).unwrap()
+}
+
+fn cart_from_row(row: &PgRow) -> Result<Cart, sqlx::Error> {
+    let created_at: OffsetDateTime = row.try_get("created_at")?;
+    let updated_at: Option<OffsetDateTime> = row.try_get("updated_at")?;
+    Ok(Cart {
+        cart_id: row.try_get("shopping_cart_id")?,
+        member_id: row.try_get("member_id")?,
+        group_purchase_id: row.try_get("group_purchase_id")?,
+        quantity: row.try_get("quantity")?,
+        created_at: created_at
+            .format(&Rfc3339)
+            .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
+        updated_at: updated_at
+            .map(|value| value.format(&Rfc3339))
+            .transpose()
+            .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
+    })
 }
 
 fn api_response<T: Serialize>(

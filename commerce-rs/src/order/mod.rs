@@ -3,6 +3,7 @@ use crate::{
     ProductRepository,
 };
 use axum::Router;
+use sqlx::PgPool;
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -15,11 +16,13 @@ mod confirm;
 mod create;
 mod lifecycle;
 mod participants;
+mod postgres;
 mod read;
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub(crate) struct OrderRepository {
     store: Arc<Mutex<OrderStore>>,
+    pool: Option<PgPool>,
 }
 
 #[derive(Clone, Default)]
@@ -147,8 +150,23 @@ pub(super) struct NewOrder {
 }
 
 impl OrderRepository {
+    #[cfg(test)]
     pub(crate) fn empty() -> Self {
-        Self::default()
+        Self {
+            store: Arc::new(Mutex::new(OrderStore::default())),
+            pool: None,
+        }
+    }
+
+    pub(crate) fn postgres(pool: PgPool) -> Self {
+        Self {
+            store: Arc::new(Mutex::new(OrderStore::default())),
+            pool: Some(pool),
+        }
+    }
+
+    pub(super) fn pool(&self) -> Option<&PgPool> {
+        self.pool.as_ref()
     }
 
     pub(super) fn transact<T>(&self, operation: impl FnOnce(&mut Vec<Order>) -> T) -> T {
