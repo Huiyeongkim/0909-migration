@@ -3,7 +3,7 @@ import type {
   CartInfo, Credentials, DirectOrderRequest, GroupPurchaseDetail, GroupPurchaseSummary,
   OrderInfo, PointPaymentResult, ProductDetail,
 } from "@commerce/contracts";
-import { type ButtonHTMLAttributes, type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type ButtonHTMLAttributes, type CSSProperties, type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import "./styles.css";
 
 const SESSION_KEY = "commerce.local-session";
@@ -103,6 +103,10 @@ export function CommerceApp({ target, client, storage, idFactory = createId }: C
     if (view === "orders") void loadOrders();
   }, [loadCarts, loadOrders, view]);
 
+  useEffect(() => {
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [view]);
+
   function changeView(next: View) {
     setView(next);
     setActionError("");
@@ -171,13 +175,15 @@ export function CommerceApp({ target, client, storage, idFactory = createId }: C
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div>
-          <span className="eyebrow">0909 Commerce · {target === "desktop" ? "Desktop" : "Web"}</span>
-          <strong className="brand">같이 사는 장터</strong>
-        </div>
+        <button className="brand" onClick={() => changeView("shop")} aria-label="공동구매 홈으로 이동">
+          0909 COMMERCE
+          <span>{target === "desktop" ? "DESKTOP" : "WEB"}</span>
+        </button>
+        <p className="topbar-copy">지금, 더 좋은 것들을 함께</p>
         <nav aria-label="주요 메뉴" className="nav-tabs">
           {(["shop", "cart", "orders", "points", "account"] as const).map((item) => (
             <button key={item} className={view === item ? "is-active" : ""} onClick={() => changeView(item)}>
+              <span className="nav-index">0{(["shop", "cart", "orders", "points", "account"] as const).indexOf(item) + 1}</span>
               {viewLabel(item)}
             </button>
           ))}
@@ -277,21 +283,48 @@ interface ShopProps {
 }
 
 function ShopScreen(props: ShopProps) {
+  useEffect(() => {
+    if (!props.selected || props.detailState !== "ready" || typeof document === "undefined") return;
+    const heading = document.getElementById("purchase-detail-title");
+    if (!heading) return;
+    const reducedMotion = typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    heading.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
+    heading.focus({ preventScroll: true });
+  }, [props.detailState, props.selected]);
+
   return (
     <section aria-labelledby="shop-title">
-      <div className="page-heading"><div><span className="eyebrow">공동구매</span><h1 id="shop-title">지금 함께 살 수 있어요</h1></div></div>
+      <div className="shop-hero">
+        <div>
+          <span className="hero-kicker">COLLECTIVE BUYING / 2026</span>
+          <h1 id="shop-title">지금 같이<br />사는 것들</h1>
+        </div>
+        <p>좋은 것은<br />혼자보다 함께일 때<br />더 가까워집니다.</p>
+        <p className="hero-note">일상의 좋은 것들을<br />함께 고르는<br />0909의 공동구매</p>
+      </div>
+      <div className="catalog-toolbar" aria-label="상품 목록 정보">
+        <strong>ALL DROP</strong>
+        <span>{String(props.purchases.length).padStart(2, "0")} ITEMS</span>
+        <span>SEOUL / KOREA</span>
+      </div>
       {props.state === "loading" && <StatePanel message="공동구매를 불러오는 중입니다." />}
       {props.state === "error" && <StatePanel error message={props.error} />}
       {props.state === "ready" && props.purchases.length === 0 && <StatePanel message="현재 등록된 공동구매가 없습니다." />}
       <div className="purchase-grid">
         {props.purchases.map((purchase) => (
           <article className="purchase-card" key={purchase.groupPurchaseId}>
-            <div className="image-placeholder" aria-hidden="true">{purchase.category.slice(0, 1)}</div>
-            <span className={`badge badge--${purchase.status.toLowerCase()}`}>{purchase.status}</span>
-            <h2>{purchase.title}</h2>
-            <p className="price"><strong>{purchase.discountedPrice.toLocaleString()}원</strong><s>{purchase.originalPrice.toLocaleString()}원</s></p>
-            <p className="muted">{purchase.currentQuantity} / {purchase.maxQuantity}명 참여</p>
-            <Button onClick={() => void props.onSelect(purchase.groupPurchaseId)}>상세 보기</Button>
+            <div className="product-visual" style={productVisualStyle(purchase.title, purchase.category)} aria-hidden="true" />
+            <div className="card-status">
+              <span>{purchase.category.toUpperCase()}</span>
+              <span className={`badge badge--${purchase.status.toLowerCase()}`}>{statusLabel(purchase.status)}</span>
+            </div>
+            <div className="card-body">
+              <span className="catalog-number">NO. {shortId(purchase.groupPurchaseId).toUpperCase()}</span>
+              <h2>{purchase.title}</h2>
+              <p className="price"><strong>{purchase.discountedPrice.toLocaleString()}원</strong><s>{purchase.originalPrice.toLocaleString()}원</s></p>
+              <div className="progress" aria-label={`${purchase.currentQuantity}명 참여, 최대 ${purchase.maxQuantity}명`}><span style={{ width: `${Math.min(100, purchase.maxQuantity ? purchase.currentQuantity / purchase.maxQuantity * 100 : 0)}%` }} /></div>
+              <div className="card-footer"><span>{purchase.currentQuantity} / {purchase.maxQuantity}명</span><Button variant="secondary" onClick={() => void props.onSelect(purchase.groupPurchaseId)}>자세히 보기 <span aria-hidden="true">→</span></Button></div>
+            </div>
           </article>
         ))}
       </div>
@@ -318,14 +351,16 @@ function PurchaseDetailPanel(props: ShopProps & { selected: GroupPurchaseDetail 
   }
   return (
     <article className="detail-panel" aria-labelledby="purchase-detail-title">
-      <div><span className="eyebrow">선택한 공동구매</span><h2 id="purchase-detail-title">{purchase.title}</h2>
+      <div className="detail-visual product-visual" style={productVisualStyle(purchase.title, purchase.category)} aria-hidden="true" />
+      <div className="detail-copy"><span className="eyebrow">SELECTED DROP / {purchase.category.toUpperCase()}</span><h2 id="purchase-detail-title" tabIndex={-1}>{purchase.title}</h2>
         <p>{purchase.description ?? "상세 설명이 없습니다."}</p>
-        <dl className="facts"><div><dt>상태</dt><dd>{purchase.status}</dd></div><div><dt>가격</dt><dd>{purchase.discountedPrice.toLocaleString()}원</dd></div><div><dt>기간</dt><dd>{formatDate(purchase.startDate)} – {formatDate(purchase.endDate)}</dd></div></dl>
+        <dl className="facts"><div><dt>상태</dt><dd>{statusLabel(purchase.status)}</dd></div><div><dt>가격</dt><dd>{purchase.discountedPrice.toLocaleString()}원</dd></div><div><dt>기간</dt><dd>{formatDate(purchase.startDate)} – {formatDate(purchase.endDate)}</dd></div></dl>
         <Button variant="secondary" disabled={props.busy === "product"} onClick={() => void props.onProduct(purchase.productId)}>원상품 정보 보기</Button>
         {props.selectedProduct && <div className="product-note"><strong>{props.selectedProduct.name}</strong><span>{props.selectedProduct.description}</span><span>재고 {props.selectedProduct.stock}개</span></div>}
       </div>
       <div className="action-panel">
         <label>수량<input type="number" min="1" max={Math.max(1, purchase.maxQuantity - purchase.currentQuantity)} value={quantity} onChange={(e) => setQuantity(Math.max(1, Number(e.target.value)))} /></label>
+        {purchase.status === "SCHEDULED" && <p className="availability-note"><strong>{formatDate(purchase.startDate)}</strong>부터 장바구니와 주문을 이용할 수 있습니다.</p>}
         <Button disabled={props.busy === "cart" || purchase.status !== "OPEN"} onClick={() => void props.onAddCart(purchase.groupPurchaseId, quantity)}>장바구니 담기</Button>
         <Button variant="secondary" disabled={purchase.status !== "OPEN"} onClick={() => setShowOrder((value) => !value)}>바로 주문</Button>
         {showOrder && <form className="stack-form" onSubmit={submitOrder}>
@@ -407,6 +442,20 @@ function requireSession(session: CommerceSession | null, navigate: (view: View) 
   setError("로그인 후 이용해 주세요."); navigate("account"); return false;
 }
 function viewLabel(view: View) { return ({ shop: "공동구매", cart: "장바구니", orders: "주문", points: "포인트", account: "계정" } as const)[view]; }
+function statusLabel(status: string) { return ({ SCHEDULED: "오픈 예정", OPEN: "진행 중", CLOSED: "마감", FAILED: "무산" } as Record<string, string>)[status] ?? status; }
+function productVisualIndex(title: string, category: string) {
+  const value = `${title} ${category}`.toLowerCase();
+  if (/사과|apple/.test(value)) return 1;
+  if (/커피|coffee/.test(value)) return 2;
+  if (/램프|조명|lamp/.test(value)) return 3;
+  if (/스피커|사운드|speaker/.test(value)) return 4;
+  if (/요가|홈트|mat/.test(value)) return 5;
+  return 0;
+}
+function productVisualStyle(title: string, category: string): CSSProperties {
+  const index = productVisualIndex(title, category);
+  return { "--visual-x": `${(index % 3) * 50}%`, "--visual-y": `${Math.floor(index / 3) * 100}%` } as CSSProperties;
+}
 function messageOf(error: unknown) { return error instanceof ApiError || error instanceof Error ? error.message : "요청을 처리하지 못했습니다."; }
 function shortId(value: string) { return value.slice(0, 8); }
 function formatDate(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium" }).format(date); }

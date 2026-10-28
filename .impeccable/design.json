@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-28T17:14:30+09:00",
+  "title": "Design System: 0909 Commerce",
+  "extensions": {
+    "colorMeta": {
+      "ink": { "role": "neutral", "displayName": "Matte Ink", "canonical": "#0a0a0a", "tonalRamp": ["#0a0a0a", "#242424", "#404040", "#5e5e5e", "#7e7e7e", "#a3a3a3", "#cacaca", "#f2f2f2"] },
+      "paper": { "role": "neutral", "displayName": "Warm Paper", "canonical": "#f4f4f1", "tonalRamp": ["#252521", "#41413b", "#5f5f57", "#7f7f76", "#a0a098", "#bfbfb8", "#ddddD8", "#f4f4f1"] },
+      "white": { "role": "neutral", "displayName": "Clean White", "canonical": "#ffffff", "tonalRamp": ["#262626", "#424242", "#606060", "#808080", "#a1a1a1", "#c1c1c1", "#e0e0e0", "#ffffff"] },
+      "safety-orange": { "role": "primary", "displayName": "Safety Orange", "canonical": "#d93600", "tonalRamp": ["#4a1200", "#6c1b00", "#902500", "#b72f00", "#d93600", "#ee6337", "#f89b7d", "#ffd8ca"] },
+      "rule": { "role": "neutral", "displayName": "Editorial Rule", "canonical": "#a9a9a4", "tonalRamp": ["#252522", "#41413d", "#5f5f5a", "#7e7e78", "#9e9e98", "#bcbcb7", "#d9d9d5", "#f2f2ef"] },
+      "muted": { "role": "neutral", "displayName": "Muted Graphite", "canonical": "#666661", "tonalRamp": ["#1a1a18", "#343431", "#4d4d49", "#666661", "#858580", "#a7a7a1", "#ccccC7", "#f0f0ec"] },
+      "danger": { "role": "primary", "displayName": "Deep Error Red", "canonical": "#a1190e", "tonalRamp": ["#3c0704", "#5c0d08", "#7d120b", "#a1190e", "#c73728", "#df6b5e", "#efa49b", "#fbd9d5"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Editorial Display", "purpose": "Hero statements only." },
+      "headline": { "displayName": "Section Headline", "purpose": "Page and section headings." },
+      "title": { "displayName": "Product Title", "purpose": "Product and card hierarchy." },
+      "body": { "displayName": "Korean Body", "purpose": "Descriptions, forms, and explanatory copy." },
+      "label": { "displayName": "Catalog Label", "purpose": "Categories, eyebrows, indices, and metadata." }
+    },
+    "shadows": [
+      { "name": "feedback-offset", "value": "8px 8px 0 rgba(255, 61, 0, 0.9)", "purpose": "Temporary success and status feedback only." },
+      { "name": "feedback-error-offset", "value": "8px 8px 0 #0a0a0a", "purpose": "Temporary error feedback only." }
+    ],
+    "motion": [
+      { "name": "control-state", "value": "160ms linear", "purpose": "Black-and-white button color inversion." },
+      { "name": "reduced-motion", "value": "none", "purpose": "Disables smooth scrolling and button transition when reduced motion is requested." }
+    ],
+    "breakpoints": [
+      { "name": "compact-desktop", "value": "1080px" },
+      { "name": "mobile", "value": "760px" },
+      { "name": "narrow-mobile", "value": "430px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Default filled action with black-and-white inversion.",
+      "html": "<button class=\"ds-button-primary\">자세히 보기 →</button>",
+      "css": ".ds-button-primary { min-height: 42px; border: 1px solid #0a0a0a; border-radius: 0; padding: 10px 16px; color: #fff; background: #0a0a0a; font: 800 12px Pretendard, sans-serif; transition: color .16s, background .16s; cursor: pointer; } .ds-button-primary:hover { color: #0a0a0a; background: #fff; } .ds-button-primary:focus-visible { outline: 3px solid rgba(255,61,0,.38); outline-offset: 2px; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Outlined white action for secondary choices.",
+      "html": "<button class=\"ds-button-secondary\">상품 정보 보기</button>",
+      "css": ".ds-button-secondary { min-height: 42px; border: 1px solid #0a0a0a; border-radius: 0; padding: 10px 16px; color: #0a0a0a; background: #fff; font: 800 12px Pretendard, sans-serif; transition: color .16s, background .16s; cursor: pointer; } .ds-button-secondary:hover { color: #fff; background: #0a0a0a; } .ds-button-secondary:focus-visible { outline: 3px solid rgba(255,61,0,.38); outline-offset: 2px; }"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "description": "Explicit destructive action using error red without changing geometry.",
+      "html": "<button class=\"ds-button-danger\">삭제</button>",
+      "css": ".ds-button-danger { min-height: 42px; border: 1px solid #0a0a0a; border-radius: 0; padding: 10px 16px; color: #a1190e; background: #fff; font: 800 12px Pretendard, sans-serif; cursor: pointer; } .ds-button-danger:hover { color: #fff; background: #a1190e; } .ds-button-danger:focus-visible { outline: 3px solid rgba(255,61,0,.38); outline-offset: 2px; }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Sharp white field with visible editorial rule and orange keyboard focus.",
+      "html": "<label class=\"ds-field\">수량<input class=\"ds-input\" type=\"number\" value=\"1\"></label>",
+      "css": ".ds-field { display: grid; gap: 7px; color: #343431; font: 800 11px Pretendard, sans-serif; } .ds-input { width: 100%; min-height: 43px; border: 1px solid #a9a9a4; border-radius: 0; padding: 9px 11px; color: #0a0a0a; background: #fff; font: 400 16px Pretendard, sans-serif; } .ds-input:focus { outline: 3px solid rgba(255,61,0,.38); outline-offset: 2px; }"
+    },
+    {
+      "name": "Scheduled Badge",
+      "kind": "chip",
+      "refersTo": "status-badge",
+      "description": "Compact explicit status marker using the single accent.",
+      "html": "<span class=\"ds-status-badge\">오픈 예정</span>",
+      "css": ".ds-status-badge { display: inline-flex; width: fit-content; padding: 8px 10px; color: #fff; background: #d93600; font: 900 10px/1 Arial, sans-serif; letter-spacing: .02em; }"
+    },
+    {
+      "name": "Catalog Navigation",
+      "kind": "nav",
+      "description": "Divided catalog destinations with a small active-state accent.",
+      "html": "<nav class=\"ds-nav\"><button class=\"ds-nav-item ds-nav-active\">공동구매</button><button class=\"ds-nav-item\">장바구니</button><button class=\"ds-nav-item\">주문</button></nav>",
+      "css": ".ds-nav { display: flex; min-height: 58px; background: #0a0a0a; } .ds-nav-item { min-width: 92px; border: 0; border-left: 1px solid #333; padding: 0 16px; color: #aaa; background: transparent; font: 700 12px Pretendard, sans-serif; } .ds-nav-item:hover { color: #fff; } .ds-nav-item:focus-visible { outline: 3px solid rgba(255,61,0,.38); outline-offset: -3px; } .ds-nav-active { color: #fff; background: #222; } .ds-nav-active::after { content: ''; display: block; width: 5px; height: 5px; margin: 4px auto 0; border-radius: 50%; background: #d93600; }"
+    },
+    {
+      "name": "Product Catalog Card",
+      "kind": "card",
+      "description": "Signature product-first card with explicit status, price, progress, and quantity.",
+      "html": "<article class=\"ds-product-card\"><div class=\"ds-product-image\"><span>BAG / 생활잡화</span><b>오픈 예정</b></div><div class=\"ds-product-copy\"><small>NO. 0909</small><h3>매일 드는 캔버스 토트</h3><p><strong>28,900원</strong> <s>39,000원</s></p><div class=\"ds-progress\"><i></i></div><span>120 / 300명</span></div></article>",
+      "css": ".ds-product-card { width: 380px; border: 1px solid #a9a9a4; border-radius: 0; color: #0a0a0a; background: #fff; font-family: Pretendard, sans-serif; } .ds-product-image { display: flex; justify-content: space-between; min-height: 190px; padding: 14px; background: #edede9; font: 700 10px/1 Arial, sans-serif; letter-spacing: .08em; } .ds-product-image b { align-self: flex-start; padding: 8px 10px; color: #fff; background: #d93600; } .ds-product-copy { border-top: 1px solid #a9a9a4; padding: 16px; } .ds-product-copy small { color: #666661; font: 700 9px Arial, sans-serif; letter-spacing: .1em; } .ds-product-copy h3 { margin: 8px 0 12px; font-size: 24px; line-height: 1.13; letter-spacing: -.055em; } .ds-product-copy p { margin: 0 0 10px; } .ds-product-copy strong { color: #d93600; font: 900 24px Arial Black, sans-serif; letter-spacing: -.055em; } .ds-product-copy s { color: #868681; font-size: 12px; } .ds-progress { height: 6px; margin-bottom: 9px; background: #d9d9d5; overflow: hidden; } .ds-progress i { display: block; width: 40%; height: 100%; background: #0a0a0a; } .ds-product-copy > span { font-size: 11px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Seoul Editorial Market",
+    "overview": "0909 Commerce interprets a Seoul fashion-editorial sensibility as a product-first group-buying catalog. Matte black, warm paper white, dense Korean typography, documentary product imagery, and sharp rules make price, status, participation, and timing read before decoration.\n\nThe system is deliberately flat and asymmetric. One featured product establishes hierarchy while compact neighboring entries preserve comparison density; responsive layouts keep that hierarchy instead of turning every item into the same card.",
+    "keyCharacteristics": [
+      "Product-first asymmetric catalog composition",
+      "Matte black and warm white with rare safety-orange emphasis",
+      "Dense, tightly tracked type and one-pixel structural rules",
+      "Sharp rectangular controls and containers",
+      "Fixed bottom navigation on mobile"
+    ],
+    "rules": [
+      { "name": "The One Accent Rule", "body": "Safety orange signals price, status, selection, or focus; it is never ambient decoration.", "section": "colors" },
+      { "name": "The Black-and-White First Rule", "body": "A screen must remain legible and hierarchically complete before orange is applied.", "section": "colors" },
+      { "name": "The Compression Rule", "body": "Tight tracking and compressed leading belong to large headings; body copy retains open leading and normal spacing.", "section": "typography" },
+      { "name": "The Product Hierarchy Rule", "body": "Preserve one dominant catalog item and dense comparison neighbors; do not normalize the catalog into equal promotional tiles.", "section": "layout" },
+      { "name": "The Structural Depth Rule", "body": "Use rules and tonal separation for persistent hierarchy; reserve hard shadow for temporary feedback.", "section": "elevation" },
+      { "name": "The Sharp Edge Rule", "body": "Do not round application cards or controls; the catalog's precision depends on square silhouettes.", "section": "shapes" }
+    ],
+    "dos": [
+      "Do keep product imagery and purchase facts ahead of promotional copy.",
+      "Do use one-pixel rules and neutral surface changes to structure dense layouts.",
+      "Do preserve visible focus, text status labels, and reduced-motion behavior.",
+      "Do keep the mobile five-destination navigation fixed to the bottom edge."
+    ],
+    "donts": [
+      "Don't use gradients, glass effects, or soft ambient shadows.",
+      "Don't round cards, fields, buttons, badges, or navigation cells.",
+      "Don't use safety orange as a decorative background or broad brand wash.",
+      "Don't replace the asymmetric catalog with a uniform app-card grid."
+    ]
+  }
+}
