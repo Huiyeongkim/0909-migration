@@ -114,7 +114,7 @@
     {
       "id": "product-internal-vector",
       "title": "Migrate internal product vector feed",
-      "status": "ready",
+      "status": "complete",
       "sourcePaths": [
         "commerce/src/main/java/store/_0982/commerce/presentation/product/InternalProductController.java",
         "commerce/src/main/java/store/_0982/commerce/application/product/ProductService.java"
@@ -125,6 +125,9 @@
         "No external search or recommendation service is connected",
         "All available Java and Rust verification passes",
         "legacy/commerce remains unchanged"
+      ],
+      "notes": [
+        "The internal vector feed now returns the legacy direct PageResponse shape with productId ordering, required paging inputs, empty-page behavior, and preserved invalid-input errors through the local product repository. No external search or recommendation integration was added."
       ]
     },
     {
