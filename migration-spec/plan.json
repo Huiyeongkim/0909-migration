@@ -148,6 +148,40 @@
       "notes": [
         "Axum now serves group-purchase detail, public list, and seller list through a local GroupPurchaseRepository and joins product data through ProductRepository. Focused tests cover all statuses, paging and sorting, seller filtering, missing resources, and invalid inputs; Rust gates, relevant legacy tests, and the legacy-clean check pass. Durable group-purchase persistence is deferred to the write slice."
       ]
+    },
+    {
+      "id": "group-purchase-write",
+      "title": "Migrate group-purchase create, update, and delete",
+      "status": "ready",
+      "sourcePaths": [
+        "commerce/src/main/java/store/_0982/commerce/presentation/grouppurchase",
+        "commerce/src/main/java/store/_0982/commerce/application/grouppurchase/GroupPurchaseService.java"
+      ],
+      "doneWhen": [
+        "Create, update, and delete contracts are documented",
+        "Validation, seller ownership, OPEN lifecycle rules, and product references are covered",
+        "Writes use a repository boundary and preserve transactional intent",
+        "External events are deferred to the local event-boundaries unit",
+        "All available Java and Rust verification passes",
+        "legacy/commerce remains unchanged"
+      ]
+    },
+    {
+      "id": "local-auth",
+      "title": "Replace member authentication with a local account and session boundary",
+      "status": "ready",
+      "sourcePaths": [
+        "member/src/main/java/store/_0982/member/application/member/AuthService.java",
+        "commerce/src/main/java/store/_0982/commerce/presentation"
+      ],
+      "doneWhen": [
+        "Username and password registration and login contracts are documented",
+        "Passwords are hashed and bearer sessions are revocable",
+        "Authenticated sessions resolve to the UUID member boundary used by commerce",
+        "No external member service or production credential is added",
+        "All available Java and Rust verification passes",
+        "legacy sources remain unchanged"
+      ]
     }
   ]
 }
