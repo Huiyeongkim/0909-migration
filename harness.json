@@ -1043,8 +1043,7 @@
       "dependencies": [],
       "locks": ["product-domain", "commerce-router-wiring", "database-migrations"],
       "allowedPaths": [
-        "commerce-rs/src/main.rs",
-        "commerce-rs/src/product.rs",
+        "commerce-rs/src/**",
         "commerce-rs/migrations/**",
         "migration-spec/anomalies/product-postgres-hardening.md"
       ],
