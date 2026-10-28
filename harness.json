@@ -1037,6 +1037,77 @@
       "prLabels": []
     },
     {
+      "id": "product-postgres-hardening",
+      "title": "상품 저장소 PostgreSQL 동시성 보강",
+      "status": "ready",
+      "dependencies": [],
+      "locks": ["product-domain", "commerce-router-wiring", "database-migrations"],
+      "allowedPaths": [
+        "commerce-rs/src/main.rs",
+        "commerce-rs/src/product.rs",
+        "commerce-rs/migrations/**",
+        "migration-spec/anomalies/product-postgres-hardening.md"
+      ],
+      "forbiddenPaths": ["legacy/**", "apps/**", "packages/**"],
+      "setup": [],
+      "verification": [],
+      "doneWhen": [
+        {"id": "postgres-repository", "description": "상품 생성·조회·수정·삭제가 PostgreSQL 저장소를 사용한다."},
+        {"id": "idempotency-race", "description": "같은 멱등 키의 동시 생성 요청이 같은 상품을 반환한다."},
+        {"id": "product-tests", "description": "상품 계약과 PostgreSQL 경쟁 조건을 검증하는 테스트가 있다."}
+      ],
+      "requiresApproval": false,
+      "prLabels": []
+    },
+    {
+      "id": "commerce-transaction-hardening",
+      "title": "공동구매·주문 PostgreSQL 트랜잭션 보강",
+      "status": "ready",
+      "dependencies": ["product-postgres-hardening"],
+      "locks": ["order-domain", "group-purchase-order-boundary", "local-point-ledger", "database-migrations"],
+      "allowedPaths": [
+        "commerce-rs/src/cart.rs",
+        "commerce-rs/src/group_purchase/**",
+        "commerce-rs/src/local_auth.rs",
+        "commerce-rs/src/order/**",
+        "commerce-rs/src/main.rs",
+        "commerce-rs/migrations/**",
+        "migration-spec/anomalies/commerce-transaction-hardening.md"
+      ],
+      "forbiddenPaths": ["legacy/**", "apps/**", "packages/**"],
+      "setup": [],
+      "verification": [],
+      "doneWhen": [
+        {"id": "transaction-boundaries", "description": "주문·수량·포인트 상태 변경이 PostgreSQL 트랜잭션 하나에서 처리된다."},
+        {"id": "race-tests", "description": "초과 참여와 결제·만료 경쟁을 실제 PostgreSQL에서 검증한다."},
+        {"id": "idempotent-replay", "description": "주문과 결제 재요청이 중복 상태 변경을 만들지 않는다."}
+      ],
+      "requiresApproval": false,
+      "prLabels": []
+    },
+    {
+      "id": "event-outbox",
+      "title": "로컬 이벤트 transactional outbox 적용",
+      "status": "ready",
+      "dependencies": ["commerce-transaction-hardening"],
+      "locks": ["event-boundary", "database-migrations", "commerce-router-wiring"],
+      "allowedPaths": [
+        "commerce-rs/src/**",
+        "commerce-rs/migrations/**",
+        "migration-spec/anomalies/event-outbox.md"
+      ],
+      "forbiddenPaths": ["legacy/**", "apps/**", "packages/**"],
+      "setup": [],
+      "verification": [],
+      "doneWhen": [
+        {"id": "atomic-outbox", "description": "상태 변경과 outbox 기록이 같은 PostgreSQL 트랜잭션에서 커밋된다."},
+        {"id": "delivery-retry", "description": "미전송 이벤트를 재처리하며 동일 이벤트를 중복 생성하지 않는다."},
+        {"id": "outbox-tests", "description": "커밋·롤백·재시도 경계를 검증하는 테스트가 있다."}
+      ],
+      "requiresApproval": false,
+      "prLabels": []
+    },
+    {
       "id": "qa-web-ui",
       "kind": "qa",
       "title": "React 웹 반응형·접근성 QA",
@@ -1070,6 +1141,9 @@
             "축소 모션에서는 즉시 이동하며 기능과 정보가 사라지지 않는다."
           ]
         }
+      ],
+      "doneWhen": [
+        {"id": "qa-report", "description": "반응형·키보드·축소 모션 결과가 qa 경로에 기록되어 있다."}
       ],
       "requiresApproval": false,
       "prLabels": []
@@ -1108,6 +1182,9 @@
           ]
         }
       ],
+      "doneWhen": [
+        {"id": "qa-report", "description": "Tauri 실행·창 크기·연결 실패 스모크 결과가 qa 경로에 기록되어 있다."}
+      ],
       "requiresApproval": false,
       "prLabels": []
     },
@@ -1145,6 +1222,9 @@
           ]
         }
       ],
+      "doneWhen": [
+        {"id": "qa-report", "description": "API 계약·인증 영속성·회원 격리 결과가 qa 경로에 기록되어 있다."}
+      ],
       "requiresApproval": false,
       "prLabels": []
     },
@@ -1181,6 +1261,9 @@
             "승인된 OPEN fixture가 없으면 우회하지 않고 blocked와 원인을 기록한다."
           ]
         }
+      ],
+      "doneWhen": [
+        {"id": "qa-report", "description": "가입부터 포인트 결제까지 E2E 결과가 qa 경로에 기록되어 있다."}
       ],
       "requiresApproval": false,
       "prLabels": []
