@@ -357,11 +357,11 @@
     {
       "id": "order-confirm",
       "title": "Migrate purchase confirmation and settlement ledger creation",
-      "status": "ready",
+      "status": "complete",
       "sourcePaths": [
         "commerce/src/main/java/store/_0982/commerce/presentation/order/OrderController.java",
-        "commerce/src/main/java/store/_0982/commerce/application/order/OrderSettlementService.java",
-        "commerce/src/main/java/store/_0982/commerce/domain/order/OrderSettlement.java"
+        "commerce/src/main/java/store/_0982/commerce/application/settlement/OrderSettlementService.java",
+        "common/src/main/java/store/_0982/common/domain/settlement/OrderSettlement.java"
       ],
       "doneWhen": [
         "Buyer authorization, PAYMENT_COMPLETED to CONFIRMED transition, response, and errors are documented",
@@ -369,6 +369,9 @@
         "Success, missing order, foreign buyer, invalid state, duplicate call, and atomicity are covered",
         "Legacy order settlement tests and all Rust verification pass",
         "legacy/commerce remains unchanged"
+      ],
+      "notes": [
+        "Added buyer-only purchase confirmation with an atomic process-local order and settlement ledger transaction. PAYMENT_COMPLETED orders become CONFIRMED and create one COMPLETED ledger row with the legacy 20 percent truncating fee calculation. Focused tests cover response and calculation fields, missing/foreign/invalid-state failures, concurrent duplicate prevention, settlement-write rollback, and the preserved soft-delete anomaly. Seller balance mutation and external services remain out of scope."
       ]
     },
     {
