@@ -703,6 +703,49 @@
       "prLabels": []
     },
     {
+      "id": "order-create",
+      "title": "직접·장바구니 주문 생성 마이그레이션",
+      "status": "ready",
+      "dependencies": ["order-module-wiring", "cart", "group-purchase-participate", "local-auth"],
+      "locks": ["order-domain", "cart-order-boundary", "group-purchase-order-boundary", "identity-order-boundary", "commerce-router-wiring", "order-create-plan"],
+      "allowedPaths": [
+        "commerce-rs/src/main.rs",
+        "commerce-rs/src/cart.rs",
+        "commerce-rs/src/local_auth.rs",
+        "commerce-rs/src/group_purchase/mod.rs",
+        "commerce-rs/src/group_purchase/participate.rs",
+        "commerce-rs/src/order/**",
+        "migration-spec/contracts/order-create.md",
+        "migration-spec/anomalies/order-create.md",
+        "migration-spec/decisions/order-idempotency-scope.md",
+        "migration-spec/plan.json"
+      ],
+      "forbiddenPaths": ["legacy/**"],
+      "setup": [],
+      "verification": [
+        {
+          "id": "legacy-commerce-test-classes",
+          "command": ["./gradlew", "-p", "commerce", "testClasses", "--no-daemon"],
+          "cwd": "legacy"
+        }
+      ],
+      "doneWhen": [
+        {"id": "create-contract", "description": "직접·장바구니 주문 입력, 응답, 오류, 만료와 가격 스냅샷 계약이 기록되어 있다."},
+        {"id": "create-tests", "description": "성공, 검증, 멱등, cart, 참여 capacity와 rollback focused 테스트가 있다."},
+        {"id": "repository-boundary", "description": "주문 생성과 멱등 처리가 로컬 repository 경계를 사용하고 후속 child router가 shared state를 받는다."},
+        {"id": "idempotency-decision", "description": "전역 requestId 교차 회원 노출의 보존 여부가 승인된 decision으로 기록되어 있다."},
+        {"id": "no-external-services", "description": "외부 member, PG, Kafka와 운영 자격증명을 추가하지 않았다."},
+        {
+          "id": "legacy-unchanged",
+          "description": "레거시 commerce 소스가 변경되지 않았다.",
+          "command": ["git", "diff", "--exit-code", "--", "commerce"],
+          "cwd": "legacy"
+        }
+      ],
+      "requiresApproval": true,
+      "prLabels": []
+    },
+    {
       "id": "local-auth",
       "title": "아이디·비밀번호 로컬 인증 구현",
       "status": "ready",

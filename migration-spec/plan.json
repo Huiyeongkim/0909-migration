@@ -303,6 +303,25 @@
       ]
     },
     {
+      "id": "order-create",
+      "title": "Migrate direct and cart order creation",
+      "status": "ready",
+      "sourcePaths": [
+        "commerce/src/main/java/store/_0982/commerce/presentation/order/OrderController.java",
+        "commerce/src/main/java/store/_0982/commerce/application/order/OrderCommandService.java",
+        "commerce/src/main/java/store/_0982/commerce/domain/order/OrderRepository.java",
+        "commerce/src/main/java/store/_0982/commerce/infrastructure/order/OrderRepositoryAdaptor.java"
+      ],
+      "doneWhen": [
+        "Direct and cart order creation contracts and errors are documented",
+        "PENDING state, ten-minute expiry, price snapshots, cart validation, participation, and idempotency are covered",
+        "The approved requestId scope decision is recorded",
+        "No external member, payment, or broker integration is added",
+        "Legacy commerce sources compile and all Rust verification passes",
+        "legacy/commerce remains unchanged"
+      ]
+    },
+    {
       "id": "local-auth",
       "title": "Replace member authentication with a local account and session boundary",
       "status": "complete",
