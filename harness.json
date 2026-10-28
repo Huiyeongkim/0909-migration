@@ -750,8 +750,9 @@
       "title": "주문 상세·목록 조회 마이그레이션",
       "status": "ready",
       "dependencies": ["order-create"],
-      "locks": ["order-read-boundary"],
+      "locks": ["order-read-boundary", "group-purchase-order-read-boundary"],
       "allowedPaths": [
+        "commerce-rs/src/group_purchase/mod.rs",
         "commerce-rs/src/order/read.rs",
         "migration-spec/contracts/order-read.md",
         "migration-spec/anomalies/order-read.md"
