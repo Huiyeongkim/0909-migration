@@ -746,6 +746,74 @@
       "prLabels": []
     },
     {
+      "id": "order-read",
+      "title": "주문 상세·목록 조회 마이그레이션",
+      "status": "ready",
+      "dependencies": ["order-create"],
+      "locks": ["order-read-boundary"],
+      "allowedPaths": [
+        "commerce-rs/src/order/read.rs",
+        "migration-spec/contracts/order-read.md",
+        "migration-spec/anomalies/order-read.md"
+      ],
+      "forbiddenPaths": ["legacy/**"],
+      "setup": [],
+      "verification": [
+        {
+          "id": "legacy-order-query-tests",
+          "command": ["./gradlew", "-p", "commerce", "test", "--tests", "store._0982.commerce.application.order.OrderQueryServiceTest", "--no-daemon"],
+          "cwd": "legacy"
+        }
+      ],
+      "doneWhen": [
+        {"id": "read-contract", "description": "상세·구매자 목록·판매자 목록의 필드, 권한, 정렬, 페이지와 오류 계약이 기록되어 있다."},
+        {"id": "read-tests", "description": "상세 권한, soft-delete, 구매자·판매자 필터, 정렬, 페이지와 공동구매 누락 focused 테스트가 있다."},
+        {"id": "repository-read-boundary", "description": "조회가 order와 group-purchase의 기존 로컬 repository 경계를 재사용한다."},
+        {
+          "id": "legacy-unchanged",
+          "description": "레거시 commerce 소스가 변경되지 않았다.",
+          "command": ["git", "diff", "--exit-code", "--", "commerce"],
+          "cwd": "legacy"
+        }
+      ],
+      "requiresApproval": false,
+      "prLabels": []
+    },
+    {
+      "id": "order-internal-participants",
+      "title": "주문 참여자 내부 조회 마이그레이션",
+      "status": "ready",
+      "dependencies": ["order-create"],
+      "locks": ["order-participants-boundary"],
+      "allowedPaths": [
+        "commerce-rs/src/order/participants.rs",
+        "migration-spec/contracts/order-internal-participants.md",
+        "migration-spec/anomalies/order-internal-participants.md"
+      ],
+      "forbiddenPaths": ["legacy/**"],
+      "setup": [],
+      "verification": [
+        {
+          "id": "legacy-commerce-test-classes",
+          "command": ["./gradlew", "-p", "commerce", "testClasses", "--no-daemon"],
+          "cwd": "legacy"
+        }
+      ],
+      "doneWhen": [
+        {"id": "participants-contract", "description": "bare UUID 배열, PAYMENT_COMPLETED, soft-delete와 중복 유지 계약이 기록되어 있다."},
+        {"id": "participants-tests", "description": "빈 결과, 상태 필터, soft-delete 제외와 중복 회원 유지 focused 테스트가 있다."},
+        {"id": "repository-participants-boundary", "description": "내부 조회가 shared OrderRepository만 읽고 외부 연동을 추가하지 않는다."},
+        {
+          "id": "legacy-unchanged",
+          "description": "레거시 commerce 소스가 변경되지 않았다.",
+          "command": ["git", "diff", "--exit-code", "--", "commerce"],
+          "cwd": "legacy"
+        }
+      ],
+      "requiresApproval": false,
+      "prLabels": []
+    },
+    {
       "id": "local-auth",
       "title": "아이디·비밀번호 로컬 인증 구현",
       "status": "ready",
