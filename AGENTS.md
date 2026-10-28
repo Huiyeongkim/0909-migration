@@ -1,14 +1,16 @@
-# Commerce Migration Workspace
+# Commerce Migration Monorepo
 
-This workspace migrates one vertical slice at a time from the `commerce`
-service in `Huiyeongkim/0909` to `commerce-rs`.
+This workspace migrates the `commerce` service to a Rust backend and ships the
+same Commerce experience through a React web app and a Tauri desktop shell.
 
 ## Boundaries
 
 - Treat `legacy/` as read-only source material. Never edit tracked files there.
 - Migrate only `legacy/commerce`. Read shared or neighboring services only when
   required to identify a commerce-facing contract.
-- Write product code only under `commerce-rs/`.
+- Write backend product code under `commerce-rs/`.
+- Write deployable clients under `apps/web/` and `apps/desktop/`.
+- Write client code shared by web and desktop under `packages/`.
 - Write migration contracts, decisions, and anomaly reports only under
   `migration-spec/`.
 - Work on exactly one migration unit per branch and worktree. Multiple units may
@@ -16,6 +18,21 @@ service in `Huiyeongkim/0909` to `commerce-rs`.
 - Preserve observable behavior before proposing improvements.
 - Do not add production integrations, deployment, credentials, or production
   data access.
+
+## Client boundaries
+
+- `packages/app` owns shared Commerce screens and flows.
+- `packages/ui` owns the smallest reusable presentational components.
+- `packages/api-client` owns HTTP transport and response validation boundaries.
+- `packages/contracts` owns API request and response types derived from
+  `migration-spec/contracts`.
+- `apps/web` is only the browser entry point and browser-specific wiring.
+- `apps/desktop` is the Tauri entry point. React remains the UI layer; Rust is
+  limited to native shell commands and capabilities.
+- Define or update the API contract before changing backend and clients in
+  parallel. Do not let a client infer an undocumented response shape.
+- Do not add Tauri capabilities, file-system access, shell execution, or remote
+  navigation unless a migration unit explicitly requires them.
 
 ## Local replacements
 
@@ -52,5 +69,9 @@ Run the relevant Java test first when possible, then run:
 3. `cargo clippy --all-targets -- -D warnings`
 4. `cargo test`
 5. Confirm `git -C legacy diff --exit-code -- commerce`
+
+For client changes also run the task-specific pnpm typecheck, tests, and
+production build. For Tauri changes additionally run `cargo check` against the
+desktop manifest.
 
 If the same failure repeats three times, stop and report the blocker.

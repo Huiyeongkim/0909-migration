@@ -397,6 +397,58 @@
       ]
     },
     {
+      "id": "order-lifecycle-point",
+      "title": "Migrate local point charge, point payment, and order expiration",
+      "status": "ready",
+      "sourcePaths": [
+        "commerce/src/main/java/store/_0982/commerce/presentation/order/OrderCronController.java",
+        "commerce/src/main/java/store/_0982/commerce/application/order/OrderExpirationService.java",
+        "commerce/src/main/java/store/_0982/commerce/application/order/OrderPaymentProcessorService.java"
+      ],
+      "doneWhen": [
+        "Bearer-authenticated development charge and point payment follow the merged contract",
+        "Member-scoped transaction idempotency prevents duplicate credit and debit",
+        "Point balance, ledger, order payment fields, and expiration transitions are atomic",
+        "Actual pending expirations restore group-purchase quantity exactly once",
+        "No external PG, Kafka, production funding service, or credential is added",
+        "Legacy commerce sources compile and all Rust verification passes"
+      ]
+    },
+    {
+      "id": "client-web",
+      "title": "Build the shared React Commerce application and web entry point",
+      "status": "ready",
+      "sourcePaths": [
+        "migration-spec/contracts",
+        "apps/web",
+        "packages/app",
+        "packages/ui",
+        "packages/api-client",
+        "packages/contracts"
+      ],
+      "doneWhen": [
+        "Shared React flows cover authentication, catalog, group purchase, cart, order, point payment, and cancellation",
+        "The API client and request/response types follow merged contracts",
+        "Loading, empty, error, validation, responsive, and accessibility states are handled",
+        "Focused client tests, typecheck, and the web production build pass"
+      ]
+    },
+    {
+      "id": "client-desktop",
+      "title": "Build the Tauri Rust desktop shell for the shared React application",
+      "status": "ready",
+      "sourcePaths": [
+        "apps/desktop",
+        "packages/app"
+      ],
+      "doneWhen": [
+        "Tauri runs the shared React app without duplicating Commerce screens",
+        "Rust commands remain a minimal native boundary and do not duplicate HTTP business behavior",
+        "Capabilities exclude shell, filesystem, and unnecessary operating-system permissions",
+        "Desktop UI production build and Tauri Rust check pass"
+      ]
+    },
+    {
       "id": "local-auth",
       "title": "Replace member authentication with a local account and session boundary",
       "status": "complete",

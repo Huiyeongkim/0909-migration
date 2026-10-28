@@ -4,7 +4,7 @@
   "branchPrefix": "codex/",
   "worktreeRoot": "../0909-migration-worktrees",
   "remote": "origin",
-  "maxParallel": 2,
+  "maxParallel": 3,
   "protectedBranches": ["main", "dev"],
   "defaultSetup": [
     {
@@ -890,6 +890,108 @@
         }
       ],
       "requiresApproval": true,
+      "prLabels": []
+    },
+    {
+      "id": "order-lifecycle-point",
+      "title": "로컬 포인트 결제와 주문 만료 마이그레이션",
+      "status": "ready",
+      "dependencies": ["order-cancel", "local-auth"],
+      "locks": ["order-domain", "order-lifecycle-boundary", "group-purchase-order-boundary", "identity-order-boundary", "local-point-ledger", "order-lifecycle-plan"],
+      "allowedPaths": [
+        "commerce-rs/src/local_auth.rs",
+        "commerce-rs/src/order/mod.rs",
+        "commerce-rs/src/order/lifecycle.rs",
+        "commerce-rs/src/group_purchase/mod.rs",
+        "commerce-rs/src/group_purchase/participate.rs",
+        "migration-spec/anomalies/order-lifecycle-point.md",
+        "migration-spec/decisions/local-point-development-charge.md",
+        "migration-spec/plan.json"
+      ],
+      "forbiddenPaths": ["legacy/**", "apps/**", "packages/**"],
+      "setup": [],
+      "verification": [
+        {
+          "id": "legacy-order-cron-tests",
+          "command": ["./gradlew", "-p", "commerce", "test", "--tests", "store._0982.commerce.presentation.order.OrderCronControllerTest", "--no-daemon"],
+          "cwd": "legacy"
+        },
+        {
+          "id": "legacy-commerce-test-classes",
+          "command": ["./gradlew", "-p", "commerce", "testClasses", "--no-daemon"],
+          "cwd": "legacy"
+        }
+      ],
+      "doneWhen": [
+        {"id": "point-contract", "description": "구현이 병합된 local-point-payment 계약의 인증, 멱등, 잔액과 오류를 따른다."},
+        {"id": "point-tests", "description": "충전·결제 성공, 소유권, 잔액 부족, 만료, 회원별 멱등과 rollback focused 테스트가 있다."},
+        {"id": "expiration-tests", "description": "실제 PENDING 주문만 만료하고 공동구매 수량을 원자적으로 복구하는 테스트가 있다."},
+        {"id": "local-event-log", "description": "성공 후 거래·주문·금액만 포함한 구조화 로컬 이벤트 로그를 남긴다."},
+        {"id": "no-external-services", "description": "외부 PG, Kafka, 운영 충전 서비스와 운영 자격증명을 추가하지 않았다."},
+        {
+          "id": "legacy-unchanged",
+          "description": "레거시 commerce 소스가 변경되지 않았다.",
+          "command": ["git", "diff", "--exit-code", "--", "commerce"],
+          "cwd": "legacy"
+        }
+      ],
+      "requiresApproval": true,
+      "prLabels": []
+    },
+    {
+      "id": "client-web",
+      "title": "React 웹과 공통 Commerce UI 구현",
+      "status": "ready",
+      "dependencies": ["order-cancel", "local-auth"],
+      "locks": ["client-shared", "web-client"],
+      "allowedPaths": [
+        "apps/web/**",
+        "packages/app/**",
+        "packages/ui/**",
+        "packages/api-client/**",
+        "packages/contracts/**"
+      ],
+      "forbiddenPaths": ["legacy/**", "commerce-rs/**", "apps/desktop/**", "migration-spec/**"],
+      "setup": [
+        {"id": "install-client-dependencies", "command": ["pnpm", "install", "--frozen-lockfile"], "cwd": "."}
+      ],
+      "verification": [
+        {"id": "web-typecheck", "command": ["pnpm", "typecheck:web"], "cwd": "."},
+        {"id": "web-tests", "command": ["pnpm", "test:web"], "cwd": "."},
+        {"id": "web-build", "command": ["pnpm", "build:web"], "cwd": "."}
+      ],
+      "doneWhen": [
+        {"id": "shared-flows", "description": "로그인, 상품·공동구매, 장바구니, 주문, 포인트와 취소 주요 흐름이 공통 React 앱에 있다."},
+        {"id": "client-contracts", "description": "API 타입과 클라이언트가 병합된 계약을 따르고 컴포넌트가 fetch를 직접 호출하지 않는다."},
+        {"id": "ui-states", "description": "주요 화면에 로딩, 빈 화면, 오류, 입력 검증, 반응형과 접근성 처리가 있다."},
+        {"id": "focused-client-tests", "description": "인증과 포인트 결제 주요 사용자 흐름의 focused 테스트가 있다."}
+      ],
+      "requiresApproval": false,
+      "prLabels": []
+    },
+    {
+      "id": "client-desktop",
+      "title": "Tauri Rust 데스크톱 셸 구현",
+      "status": "ready",
+      "dependencies": ["order-cancel", "local-auth"],
+      "locks": ["desktop-client"],
+      "allowedPaths": ["apps/desktop/**"],
+      "forbiddenPaths": ["legacy/**", "commerce-rs/**", "apps/web/**", "packages/**", "migration-spec/**"],
+      "setup": [
+        {"id": "install-client-dependencies", "command": ["pnpm", "install", "--frozen-lockfile"], "cwd": "."}
+      ],
+      "verification": [
+        {"id": "desktop-ui-typecheck", "command": ["pnpm", "--filter", "@commerce/desktop", "typecheck"], "cwd": "."},
+        {"id": "desktop-ui-build", "command": ["pnpm", "build:desktop-ui"], "cwd": "."},
+        {"id": "desktop-rust-check", "command": ["cargo", "check", "--manifest-path", "apps/desktop/src-tauri/Cargo.toml"], "cwd": "."}
+      ],
+      "doneWhen": [
+        {"id": "shared-react-app", "description": "Tauri가 별도 화면 복제 없이 @commerce/app의 desktop target을 실행한다."},
+        {"id": "native-boundary", "description": "Rust command는 필요한 데스크톱 정보 경계만 제공하고 HTTP 비즈니스 기능을 복제하지 않는다."},
+        {"id": "minimal-capabilities", "description": "Tauri capability가 core 기본 권한으로 제한되고 shell·filesystem 권한이 없다."},
+        {"id": "desktop-verification", "description": "데스크톱 UI production build와 Tauri Rust check가 통과한다."}
+      ],
+      "requiresApproval": false,
       "prLabels": []
     },
     {
