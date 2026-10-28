@@ -1,6 +1,6 @@
 use super::{
     api_response, error, member_id, GroupPurchaseRepository, GroupPurchaseState,
-    INVALID_PARAMETER_MESSAGE, PURCHASE_NOT_FOUND_MESSAGE,
+    INTERNAL_ERROR_MESSAGE, INVALID_PARAMETER_MESSAGE, PURCHASE_NOT_FOUND_MESSAGE,
 };
 use axum::{
     extract::{Path, State},
@@ -59,6 +59,64 @@ impl GroupPurchaseRepository {
         UnlikeResult::Unliked
     }
 
+    async fn persisted_like(
+        &self,
+        member_id: Uuid,
+        purchase_id: Uuid,
+    ) -> Result<LikeResult, sqlx::Error> {
+        let Some(pool) = self.pool() else {
+            return Ok(self.like(member_id, purchase_id));
+        };
+        let mut tx = pool.begin().await?;
+        let exists = sqlx::query_scalar::<_, Uuid>("SELECT group_purchase_id FROM product_schema.group_purchase WHERE group_purchase_id=$1 FOR UPDATE")
+            .bind(purchase_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        if exists.is_none() {
+            return Ok(LikeResult::PurchaseNotFound);
+        }
+        let inserted = sqlx::query("INSERT INTO product_schema.group_purchase_like (group_purchase_like_id,member_id,group_purchase_id) VALUES ($1,$2,$3) ON CONFLICT (member_id,group_purchase_id) DO NOTHING RETURNING group_purchase_like_id")
+            .bind(Uuid::new_v4())
+            .bind(member_id)
+            .bind(purchase_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        if inserted.is_none() {
+            return Ok(LikeResult::AlreadyLiked);
+        }
+        sqlx::query("UPDATE product_schema.group_purchase SET like_count=like_count+1,updated_at=NOW() WHERE group_purchase_id=$1")
+            .bind(purchase_id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(LikeResult::Liked)
+    }
+
+    async fn persisted_unlike(
+        &self,
+        member_id: Uuid,
+        purchase_id: Uuid,
+    ) -> Result<UnlikeResult, sqlx::Error> {
+        let Some(pool) = self.pool() else {
+            return Ok(self.unlike(member_id, purchase_id));
+        };
+        let mut tx = pool.begin().await?;
+        let deleted = sqlx::query("DELETE FROM product_schema.group_purchase_like WHERE member_id=$1 AND group_purchase_id=$2 RETURNING group_purchase_like_id")
+            .bind(member_id)
+            .bind(purchase_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        if deleted.is_none() {
+            return Ok(UnlikeResult::NotLiked);
+        }
+        sqlx::query("UPDATE product_schema.group_purchase SET like_count=GREATEST(like_count-1,0),updated_at=NOW() WHERE group_purchase_id=$1")
+            .bind(purchase_id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(UnlikeResult::Unliked)
+    }
+
     #[cfg(test)]
     fn like_count(&self, purchase_id: Uuid) -> Option<i32> {
         self.purchases
@@ -79,10 +137,16 @@ pub(super) async fn like(
         Ok(ids) => ids,
         Err((status, message)) => return error(status, message),
     };
-    match state.purchases.like(member_id, purchase_id) {
-        LikeResult::Liked => api_response::<()>(StatusCode::OK, None, LIKED_MESSAGE),
-        LikeResult::PurchaseNotFound => error(StatusCode::NOT_FOUND, PURCHASE_NOT_FOUND_MESSAGE),
-        LikeResult::AlreadyLiked => error(StatusCode::BAD_REQUEST, ALREADY_LIKED_MESSAGE),
+    match state.purchases.persisted_like(member_id, purchase_id).await {
+        Ok(LikeResult::Liked) => api_response::<()>(StatusCode::OK, None, LIKED_MESSAGE),
+        Ok(LikeResult::PurchaseNotFound) => {
+            error(StatusCode::NOT_FOUND, PURCHASE_NOT_FOUND_MESSAGE)
+        }
+        Ok(LikeResult::AlreadyLiked) => error(StatusCode::BAD_REQUEST, ALREADY_LIKED_MESSAGE),
+        Err(error_value) => {
+            eprintln!("group purchase database error: {error_value}");
+            error(StatusCode::INTERNAL_SERVER_ERROR, INTERNAL_ERROR_MESSAGE)
+        }
     }
 }
 
@@ -95,9 +159,17 @@ pub(super) async fn unlike(
         Ok(ids) => ids,
         Err((status, message)) => return error(status, message),
     };
-    match state.purchases.unlike(member_id, purchase_id) {
-        UnlikeResult::Unliked => api_response::<()>(StatusCode::OK, None, UNLIKED_MESSAGE),
-        UnlikeResult::NotLiked => error(StatusCode::BAD_REQUEST, LIKE_NOT_FOUND_MESSAGE),
+    match state
+        .purchases
+        .persisted_unlike(member_id, purchase_id)
+        .await
+    {
+        Ok(UnlikeResult::Unliked) => api_response::<()>(StatusCode::OK, None, UNLIKED_MESSAGE),
+        Ok(UnlikeResult::NotLiked) => error(StatusCode::BAD_REQUEST, LIKE_NOT_FOUND_MESSAGE),
+        Err(error_value) => {
+            eprintln!("group purchase database error: {error_value}");
+            error(StatusCode::INTERNAL_SERVER_ERROR, INTERNAL_ERROR_MESSAGE)
+        }
     }
 }
 

@@ -688,15 +688,33 @@ struct ApiResponse<T> {
     message: &'static str,
 }
 
+#[cfg(test)]
 fn app(
     products: ProductRepository,
     images: ImageRepository,
     seller_balances: SellerBalanceRepository,
     auth: AuthRepository,
 ) -> Router {
-    let group_purchases = group_purchase::GroupPurchaseRepository::empty();
-    let carts = cart::CartRepository::empty();
-    let orders = order::OrderRepository::empty();
+    app_with_repositories(
+        products,
+        images,
+        seller_balances,
+        auth,
+        group_purchase::GroupPurchaseRepository::empty(),
+        cart::CartRepository::empty(),
+        order::OrderRepository::empty(),
+    )
+}
+
+fn app_with_repositories(
+    products: ProductRepository,
+    images: ImageRepository,
+    seller_balances: SellerBalanceRepository,
+    auth: AuthRepository,
+    group_purchases: group_purchase::GroupPurchaseRepository,
+    carts: cart::CartRepository,
+    orders: order::OrderRepository,
+) -> Router {
     Router::new()
         .route("/internal/products/vector", get(get_products_for_vector))
         .route("/api/products", get(get_product_list).post(create_product))
@@ -1095,11 +1113,14 @@ async fn main() -> std::io::Result<()> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:8080").await?;
     axum::serve(
         listener,
-        app(
+        app_with_repositories(
             ProductRepository::postgres(pool.clone()),
             ImageRepository::postgres(pool.clone()),
             SellerBalanceRepository::postgres(pool.clone()),
-            AuthRepository::postgres(pool),
+            AuthRepository::postgres(pool.clone()),
+            group_purchase::GroupPurchaseRepository::postgres(pool.clone()),
+            cart::CartRepository::postgres(pool.clone()),
+            order::OrderRepository::postgres(pool),
         ),
     )
     .await

@@ -48,8 +48,13 @@ async fn find_by_ids(
 ) -> Response {
     let mut rows = Vec::new();
     for purchase_id in request.ids.unwrap_or_default() {
-        let Some(purchase) = state.purchases.find_by_id(purchase_id) else {
-            continue;
+        let purchase = match state.purchases.persisted_find_by_id(purchase_id).await {
+            Ok(Some(purchase)) => purchase,
+            Ok(None) => continue,
+            Err(error) => {
+                eprintln!("group purchase database error: {error}");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
         };
         let product = match state.products.find_by_id(purchase.product_id).await {
             Ok(Some(product)) => product,

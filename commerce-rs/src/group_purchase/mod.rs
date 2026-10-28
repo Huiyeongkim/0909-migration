@@ -2,6 +2,7 @@ use crate::{ProductDetail, ProductRepository};
 
 mod likes;
 pub(crate) mod participate;
+mod postgres;
 mod search;
 use axum::{
     extract::{rejection::JsonRejection, rejection::QueryRejection, Path, Query, State},
@@ -11,6 +12,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use sqlx::PgPool;
 use std::{
     cmp::Ordering,
     collections::{HashMap, HashSet},
@@ -35,6 +37,7 @@ const PURCHASE_DELETED_MESSAGE: &str = "공동구매가 삭제되었습니다";
 
 #[derive(Clone)]
 pub struct GroupPurchaseRepository {
+    pool: Option<PgPool>,
     purchases: Arc<RwLock<Vec<GroupPurchase>>>,
     likes: Arc<RwLock<HashSet<(Uuid, Uuid)>>>,
     success_times: Arc<RwLock<HashMap<Uuid, String>>>,
@@ -238,8 +241,22 @@ struct GroupPurchaseState {
 }
 
 impl GroupPurchaseRepository {
+    #[cfg(test)]
     pub fn empty() -> Self {
         Self::new([])
+    }
+
+    pub fn postgres(pool: PgPool) -> Self {
+        Self {
+            pool: Some(pool),
+            purchases: Arc::new(RwLock::new(Vec::new())),
+            likes: Arc::new(RwLock::new(HashSet::new())),
+            success_times: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    pub(crate) fn pool(&self) -> Option<&PgPool> {
+        self.pool.as_ref()
     }
 
     pub(crate) fn cart_availability(&self, purchase_id: Uuid) -> Option<bool> {
@@ -333,6 +350,7 @@ impl GroupPurchaseRepository {
         self.find_by_id(purchase_id).map(|purchase| purchase.title)
     }
 
+    #[cfg(test)]
     fn new(purchases: impl IntoIterator<Item = GroupPurchase>) -> Self {
         let purchases = purchases.into_iter().collect::<Vec<_>>();
         let success_times = purchases
@@ -349,6 +367,7 @@ impl GroupPurchaseRepository {
             })
             .collect();
         Self {
+            pool: None,
             purchases: Arc::new(RwLock::new(purchases)),
             likes: Arc::new(RwLock::new(HashSet::new())),
             success_times: Arc::new(RwLock::new(success_times)),
@@ -525,9 +544,17 @@ async fn create(
         return error(StatusCode::BAD_REQUEST, INVALID_DATE_RANGE_MESSAGE);
     }
 
-    let purchase = state
+    let purchase = match state
         .purchases
-        .create(NewGroupPurchase { write, seller_id });
+        .persisted_create(NewGroupPurchase { write, seller_id })
+        .await
+    {
+        Ok(purchase) => purchase,
+        Err(error_value) => {
+            eprintln!("group purchase database error: {error_value}");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, INTERNAL_ERROR_MESSAGE);
+        }
+    };
     api_response(
         StatusCode::CREATED,
         Some(GroupPurchaseInfo::from(purchase)),
@@ -557,8 +584,13 @@ async fn update(
         Err(message) => return error(StatusCode::BAD_REQUEST, message),
     };
 
-    let Some(existing) = state.purchases.find_by_id(purchase_id) else {
-        return error(StatusCode::NOT_FOUND, PURCHASE_NOT_FOUND_MESSAGE);
+    let existing = match state.purchases.persisted_find_by_id(purchase_id).await {
+        Ok(Some(existing)) => existing,
+        Ok(None) => return error(StatusCode::NOT_FOUND, PURCHASE_NOT_FOUND_MESSAGE),
+        Err(error_value) => {
+            eprintln!("group purchase database error: {error_value}");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, INTERNAL_ERROR_MESSAGE);
+        }
     };
     if existing.seller_id != seller_id {
         return error(StatusCode::FORBIDDEN, PURCHASE_OWNER_MESSAGE);
@@ -575,20 +607,28 @@ async fn update(
         }
     }
 
-    match state.purchases.update(purchase_id, seller_id, write) {
-        UpdateGroupPurchaseResult::Updated(purchase) => api_response(
+    match state
+        .purchases
+        .persisted_update(purchase_id, seller_id, write)
+        .await
+    {
+        Ok(UpdateGroupPurchaseResult::Updated(purchase)) => api_response(
             StatusCode::OK,
             Some(GroupPurchaseInfo::from(*purchase)),
             PURCHASE_UPDATED_MESSAGE,
         ),
-        UpdateGroupPurchaseResult::NotFound => {
+        Ok(UpdateGroupPurchaseResult::NotFound) => {
             error(StatusCode::NOT_FOUND, PURCHASE_NOT_FOUND_MESSAGE)
         }
-        UpdateGroupPurchaseResult::Forbidden => {
+        Ok(UpdateGroupPurchaseResult::Forbidden) => {
             error(StatusCode::FORBIDDEN, PURCHASE_OWNER_MESSAGE)
         }
-        UpdateGroupPurchaseResult::InvalidOpenUpdate => {
+        Ok(UpdateGroupPurchaseResult::InvalidOpenUpdate) => {
             error(StatusCode::BAD_REQUEST, INVALID_OPEN_UPDATE_MESSAGE)
+        }
+        Err(error_value) => {
+            eprintln!("group purchase database error: {error_value}");
+            error(StatusCode::INTERNAL_SERVER_ERROR, INTERNAL_ERROR_MESSAGE)
         }
     }
 }
@@ -606,18 +646,26 @@ async fn delete_purchase(
         Err((status, message)) => return error(status, message),
     };
 
-    match state.purchases.delete(purchase_id, seller_id) {
-        DeleteGroupPurchaseResult::Deleted => {
+    match state
+        .purchases
+        .persisted_delete(purchase_id, seller_id)
+        .await
+    {
+        Ok(DeleteGroupPurchaseResult::Deleted) => {
             api_response::<()>(StatusCode::OK, None, PURCHASE_DELETED_MESSAGE)
         }
-        DeleteGroupPurchaseResult::NotFound => {
+        Ok(DeleteGroupPurchaseResult::NotFound) => {
             error(StatusCode::NOT_FOUND, PURCHASE_NOT_FOUND_MESSAGE)
         }
-        DeleteGroupPurchaseResult::Forbidden => {
+        Ok(DeleteGroupPurchaseResult::Forbidden) => {
             error(StatusCode::FORBIDDEN, PURCHASE_OWNER_MESSAGE)
         }
-        DeleteGroupPurchaseResult::InvalidStatus => {
+        Ok(DeleteGroupPurchaseResult::InvalidStatus) => {
             error(StatusCode::BAD_REQUEST, INVALID_OPEN_UPDATE_MESSAGE)
+        }
+        Err(error_value) => {
+            eprintln!("group purchase database error: {error_value}");
+            error(StatusCode::INTERNAL_SERVER_ERROR, INTERNAL_ERROR_MESSAGE)
         }
     }
 }
@@ -693,8 +741,13 @@ async fn detail(
     let Ok(purchase_id) = Uuid::parse_str(&purchase_id) else {
         return error(StatusCode::BAD_REQUEST, INVALID_PARAMETER_MESSAGE);
     };
-    let Some(purchase) = state.purchases.find_by_id(purchase_id) else {
-        return error(StatusCode::NOT_FOUND, PURCHASE_NOT_FOUND_MESSAGE);
+    let purchase = match state.purchases.persisted_find_by_id(purchase_id).await {
+        Ok(Some(purchase)) => purchase,
+        Ok(None) => return error(StatusCode::NOT_FOUND, PURCHASE_NOT_FOUND_MESSAGE),
+        Err(error_value) => {
+            eprintln!("group purchase database error: {error_value}");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, INTERNAL_ERROR_MESSAGE);
+        }
     };
     let product = match state.products.find_by_id(purchase.product_id).await {
         Ok(Some(product)) => product,
@@ -749,12 +802,22 @@ async fn list(
     if size == 0 {
         return error(StatusCode::BAD_REQUEST, INVALID_PARAMETER_MESSAGE);
     }
-    let (purchases, total_elements) = state.purchases.find_all(
-        seller_id,
-        page,
-        size,
-        query.sort.as_deref().and_then(parse_sort),
-    );
+    let (purchases, total_elements) = match state
+        .purchases
+        .persisted_find_all(
+            seller_id,
+            page,
+            size,
+            query.sort.as_deref().and_then(parse_sort),
+        )
+        .await
+    {
+        Ok(result) => result,
+        Err(error_value) => {
+            eprintln!("group purchase database error: {error_value}");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, INTERNAL_ERROR_MESSAGE);
+        }
+    };
     let mut content = Vec::with_capacity(purchases.len());
     for purchase in purchases {
         let product = match state.products.find_by_id(purchase.product_id).await {

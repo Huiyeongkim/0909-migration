@@ -52,7 +52,21 @@ async fn confirm_purchase(
     let Ok(order_id) = Uuid::parse_str(&order_id) else {
         return response(StatusCode::BAD_REQUEST, INVALID_PARAMETER_MESSAGE);
     };
-    match state.orders.confirm_purchase(member_id, order_id) {
+    let result = if state.orders.pool().is_some() {
+        state
+            .orders
+            .confirm_postgres(member_id, order_id)
+            .await
+            .map_err(|error| match error {
+                super::postgres::ConfirmError::NotFound => ConfirmError::NotFound,
+                super::postgres::ConfirmError::Forbidden => ConfirmError::Forbidden,
+                super::postgres::ConfirmError::InvalidStatus => ConfirmError::InvalidStatus,
+                super::postgres::ConfirmError::Database => ConfirmError::SettlementWrite,
+            })
+    } else {
+        state.orders.confirm_purchase(member_id, order_id)
+    };
+    match result {
         Ok(()) => response(StatusCode::OK, CONFIRMED_MESSAGE),
         Err(ConfirmError::NotFound) => response(StatusCode::NOT_FOUND, ORDER_NOT_FOUND_MESSAGE),
         Err(ConfirmError::Forbidden) => {

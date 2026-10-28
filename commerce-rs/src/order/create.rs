@@ -158,6 +158,31 @@ async fn create_direct_order(
     if let Err(error) = validate_member(&state, member_id).await {
         return error.into_response();
     }
+    if state.orders.pool().is_some() {
+        return match state
+            .orders
+            .create_direct_postgres(
+                member_id,
+                request.quantity,
+                request.group_purchase_id,
+                &request.request_id,
+                super::postgres::Delivery {
+                    address: &request.address,
+                    address_detail: &request.address_detail,
+                    postal_code: &request.postal_code,
+                    receiver_name: &request.receiver_name,
+                },
+            )
+            .await
+        {
+            Ok(order) => api_response(
+                StatusCode::CREATED,
+                Some(OrderRegisterInfo::from(&order)),
+                DIRECT_CREATED_MESSAGE,
+            ),
+            Err(error) => postgres_create_error(error).into_response(),
+        };
+    }
     let product_ids = match state.products.existing_ids().await {
         Ok(product_ids) => product_ids,
         Err(error) => {
@@ -233,6 +258,35 @@ async fn create_cart_order(
     };
     if let Err(error) = validate_member(&state, member_id).await {
         return error.into_response();
+    }
+    if state.orders.pool().is_some() {
+        return match state
+            .orders
+            .create_cart_postgres(
+                member_id,
+                &request.cart_ids,
+                &request.request_id,
+                super::postgres::Delivery {
+                    address: &request.address,
+                    address_detail: &request.address_detail,
+                    postal_code: &request.postal_code,
+                    receiver_name: &request.receiver_name,
+                },
+            )
+            .await
+        {
+            Ok(orders) => api_response(
+                StatusCode::CREATED,
+                Some(
+                    orders
+                        .iter()
+                        .map(OrderRegisterInfo::from)
+                        .collect::<Vec<_>>(),
+                ),
+                CART_CREATED_MESSAGE,
+            ),
+            Err(error) => postgres_create_error(error).into_response(),
+        };
     }
     // shortcut: load product IDs once while orders are still in memory; use a joined SQL transaction after order persistence moves to PostgreSQL.
     let product_ids = match state.products.existing_ids().await {
@@ -439,6 +493,24 @@ fn participation_transaction_error(
             }
         },
         OrderParticipationTransactionError::Commit(error) => error,
+    }
+}
+
+fn postgres_create_error(error: super::postgres::CreateError) -> CreateError {
+    use super::postgres::CreateError as Error;
+    match error {
+        Error::PurchaseNotFound => create_error(StatusCode::NOT_FOUND, PURCHASE_NOT_FOUND_MESSAGE),
+        Error::PurchaseNotOpen => create_error(StatusCode::BAD_REQUEST, PURCHASE_NOT_OPEN_MESSAGE),
+        Error::PurchaseExpired => create_error(StatusCode::BAD_REQUEST, PURCHASE_EXPIRED_MESSAGE),
+        Error::Capacity => create_error(StatusCode::BAD_REQUEST, PURCHASE_REACHED_MESSAGE),
+        Error::CartNotFound => create_error(StatusCode::NOT_FOUND, CART_NOT_FOUND_MESSAGE),
+        Error::CartForbidden => create_error(StatusCode::FORBIDDEN, NOT_CART_OWNER_MESSAGE),
+        Error::CartEmpty => create_error(StatusCode::BAD_REQUEST, CART_EMPTY_MESSAGE),
+        Error::PartialReplay => create_error(StatusCode::CONFLICT, DUPLICATE_REQUEST_MESSAGE),
+        Error::Database(error) => {
+            eprintln!("order database error: {error}");
+            create_error(StatusCode::INTERNAL_SERVER_ERROR, INTERNAL_ERROR_MESSAGE)
+        }
     }
 }
 
