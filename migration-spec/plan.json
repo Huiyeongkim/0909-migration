@@ -28,7 +28,7 @@
     {
       "id": "product-get-list",
       "title": "Migrate seller product list",
-      "status": "ready",
+      "status": "complete",
       "sourcePaths": [
         "commerce/src/main/java/store/_0982/commerce/presentation/product/ProductController.java",
         "commerce/src/main/java/store/_0982/commerce/application/product/ProductService.java",
@@ -42,6 +42,9 @@
         "The local repository applies the seller filter and legacy ordering",
         "All available Java and Rust verification passes",
         "legacy/commerce remains unchanged"
+      ],
+      "notes": [
+        "Axum serves the seller list from the local repository boundary. Focused tests cover seller filtering, createdAt ordering in both directions, page slicing and metadata, empty results, and member/paging errors."
       ]
     },
     {
