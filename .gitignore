@@ -7,4 +7,5 @@ apps/desktop/src-tauri/gen/
 apps/desktop/src-tauri/icons/android/
 apps/desktop/src-tauri/icons/ios/
 .env
+qa/runs/
 .DS_Store
