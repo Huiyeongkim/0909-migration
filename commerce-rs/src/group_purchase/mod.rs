@@ -2,6 +2,7 @@ use crate::{ProductDetail, ProductRepository};
 
 mod likes;
 pub(crate) mod participate;
+mod search;
 use axum::{
     extract::{rejection::JsonRejection, rejection::QueryRejection, Path, Query, State},
     http::{HeaderMap, StatusCode},
@@ -374,6 +375,7 @@ pub fn router(purchases: GroupPurchaseRepository, products: Arc<dyn ProductRepos
             "/api/purchases/{purchase_id}/likes",
             post(likes::like).delete(likes::unlike),
         )
+        .merge(search::router())
         .with_state(GroupPurchaseState {
             purchases,
             products,

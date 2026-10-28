@@ -17,6 +17,7 @@ use std::{
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use uuid::Uuid;
 
+mod cart;
 mod group_purchase;
 mod image;
 mod local_auth;
@@ -484,6 +485,7 @@ fn app(
         .with_state(AppState {
             products: products.clone(),
         })
+        .merge(cart::router(group_purchases.clone()))
         .merge(group_purchase::router(group_purchases, products))
         .merge(image::router(images))
         .merge(seller_balance::router(seller_balances))

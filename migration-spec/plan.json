@@ -229,7 +229,7 @@
     {
       "id": "cart-search-wiring",
       "title": "Prepare isolated cart and internal-search module wiring",
-      "status": "ready",
+      "status": "complete",
       "sourcePaths": [
         "commerce/src/main/java/store/_0982/commerce/presentation/cart",
         "commerce/src/main/java/store/_0982/commerce/presentation/grouppurchase/GroupPurchaseInternalController.java"
@@ -239,6 +239,9 @@
         "Existing behavior remains unchanged",
         "Legacy commerce sources compile and all Rust verification passes",
         "legacy/commerce remains unchanged"
+      ],
+      "notes": [
+        "Connected empty cart and group-purchase search router boundaries without adding routes or changing observable behavior, so the follow-up units can own separate source files."
       ]
     },
     {
