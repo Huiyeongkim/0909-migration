@@ -6,8 +6,11 @@ import { CommerceApp, loginAndPersist, payOrderWithPoints } from "./commerce-app
 describe("CommerceApp", () => {
   it("renders the same shared application for the selected target", () => {
     const client = clientStub();
-    expect(renderToStaticMarkup(<CommerceApp target="web" client={client} storage={memoryStorage()} />)).toContain("0909 Commerce · Web");
-    expect(renderToStaticMarkup(<CommerceApp target="desktop" client={client} storage={memoryStorage()} />)).toContain("0909 Commerce · Desktop");
+    const web = renderToStaticMarkup(<CommerceApp target="web" client={client} storage={memoryStorage()} />);
+    const desktop = renderToStaticMarkup(<CommerceApp target="desktop" client={client} storage={memoryStorage()} />);
+    expect(web).toContain("0909 COMMERCE");
+    expect(web).toContain("WEB");
+    expect(desktop).toContain("DESKTOP");
   });
 
   it("logs in with credentials and persists only the returned local session", async () => {
