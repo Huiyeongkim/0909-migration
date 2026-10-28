@@ -355,6 +355,23 @@
       ]
     },
     {
+      "id": "order-confirm",
+      "title": "Migrate purchase confirmation and settlement ledger creation",
+      "status": "ready",
+      "sourcePaths": [
+        "commerce/src/main/java/store/_0982/commerce/presentation/order/OrderController.java",
+        "commerce/src/main/java/store/_0982/commerce/application/order/OrderSettlementService.java",
+        "commerce/src/main/java/store/_0982/commerce/domain/order/OrderSettlement.java"
+      ],
+      "doneWhen": [
+        "Buyer authorization, PAYMENT_COMPLETED to CONFIRMED transition, response, and errors are documented",
+        "The local settlement ledger records the approved fee calculation without changing seller balance",
+        "Success, missing order, foreign buyer, invalid state, duplicate call, and atomicity are covered",
+        "Legacy order settlement tests and all Rust verification pass",
+        "legacy/commerce remains unchanged"
+      ]
+    },
+    {
       "id": "local-auth",
       "title": "Replace member authentication with a local account and session boundary",
       "status": "complete",
