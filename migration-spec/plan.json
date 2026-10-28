@@ -152,7 +152,7 @@
     {
       "id": "group-purchase-write",
       "title": "Migrate group-purchase create, update, and delete",
-      "status": "ready",
+      "status": "complete",
       "sourcePaths": [
         "commerce/src/main/java/store/_0982/commerce/presentation/grouppurchase",
         "commerce/src/main/java/store/_0982/commerce/application/grouppurchase/GroupPurchaseService.java"
@@ -164,6 +164,9 @@
         "External events are deferred to the local event-boundaries unit",
         "All available Java and Rust verification passes",
         "legacy/commerce remains unchanged"
+      ],
+      "notes": [
+        "Create, update, and delete now use the local group-purchase repository boundary with request validation, seller checks, product references, SCHEDULED creation, OPEN update restrictions, and SCHEDULED-only deletion. Focused tests preserve the legacy update-validation and product-ownership asymmetries. Search events are deferred to event-boundaries."
       ]
     },
     {
