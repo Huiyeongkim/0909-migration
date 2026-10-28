@@ -16,6 +16,7 @@ use std::{
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use uuid::Uuid;
 
+mod group_purchase;
 mod image;
 mod seller_balance;
 
@@ -467,6 +468,7 @@ fn app(
     images: ImageRepository,
     seller_balances: SellerBalanceRepository,
 ) -> Router {
+    let group_purchases = group_purchase::GroupPurchaseRepository::empty();
     Router::new()
         .route("/internal/products/vector", get(get_products_for_vector))
         .route("/api/products", get(get_product_list).post(create_product))
@@ -476,7 +478,10 @@ fn app(
                 .patch(update_product)
                 .delete(delete_product),
         )
-        .with_state(AppState { products })
+        .with_state(AppState {
+            products: products.clone(),
+        })
+        .merge(group_purchase::router(group_purchases, products))
         .merge(image::router(images))
         .merge(seller_balance::router(seller_balances))
 }

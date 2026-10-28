@@ -133,7 +133,7 @@
     {
       "id": "group-purchase-read",
       "title": "Migrate group-purchase detail and lists",
-      "status": "ready",
+      "status": "complete",
       "sourcePaths": [
         "commerce/src/main/java/store/_0982/commerce/presentation/grouppurchase/GroupPurchaseController.java",
         "commerce/src/main/java/store/_0982/commerce/application/grouppurchase/GroupPurchaseService.java"
@@ -144,6 +144,9 @@
         "Group-purchase reads use a repository boundary",
         "All available Java and Rust verification passes",
         "legacy/commerce remains unchanged"
+      ],
+      "notes": [
+        "Axum now serves group-purchase detail, public list, and seller list through a local GroupPurchaseRepository and joins product data through ProductRepository. Focused tests cover all statuses, paging and sorting, seller filtering, missing resources, and invalid inputs; Rust gates, relevant legacy tests, and the legacy-clean check pass. Durable group-purchase persistence is deferred to the write slice."
       ]
     }
   ]
