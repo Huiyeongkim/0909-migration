@@ -1,6 +1,7 @@
 use axum::{
     extract::{rejection::JsonRejection, Path, Query, State},
     http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
     routing::get,
     Json, Router,
 };
@@ -95,10 +96,47 @@ struct ProductPage {
     number_of_elements: usize,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProductVectorItem {
+    product_id: Uuid,
+    name: String,
+    description: String,
+    category: String,
+}
+
+impl From<ProductDetail> for ProductVectorItem {
+    fn from(product: ProductDetail) -> Self {
+        Self {
+            product_id: product.product_id,
+            name: product.name,
+            description: product.description,
+            category: product.category,
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProductVectorPage {
+    content: Vec<ProductVectorItem>,
+    total_pages: usize,
+    total_elements: usize,
+    first: bool,
+    last: bool,
+    size: usize,
+    number_of_elements: usize,
+}
+
 struct ProductListOptions {
     page: usize,
     size: usize,
     descending: bool,
+}
+
+struct InternalProductOptions {
+    page: usize,
+    size: usize,
 }
 
 #[derive(Deserialize)]
@@ -216,6 +254,7 @@ trait ProductRepository: Send + Sync {
         seller_id: Uuid,
         options: &ProductListOptions,
     ) -> (Vec<ProductDetail>, usize);
+    fn find_all_for_vector(&self, options: &InternalProductOptions) -> (Vec<ProductDetail>, usize);
     fn create(&self, product: NewProduct) -> ProductDetail;
     fn update(&self, product_id: Uuid, update: ProductUpdateRequest) -> Option<ProductDetail>;
     fn delete(&self, product_id: Uuid, seller_id: Uuid) -> DeleteProductResult;
@@ -306,6 +345,25 @@ impl ProductRepository for LocalProductRepository {
         if options.descending {
             products.reverse();
         }
+
+        let total = products.len();
+        let start = options.page.saturating_mul(options.size);
+        let page = products
+            .into_iter()
+            .skip(start)
+            .take(options.size)
+            .collect();
+        (page, total)
+    }
+
+    fn find_all_for_vector(&self, options: &InternalProductOptions) -> (Vec<ProductDetail>, usize) {
+        let store = self.store.read().unwrap();
+        let mut products = store
+            .products
+            .values()
+            .map(|product| product.detail.clone())
+            .collect::<Vec<_>>();
+        products.sort_by_key(|product| product.product_id);
 
         let total = products.len();
         let start = options.page.saturating_mul(options.size);
@@ -410,6 +468,7 @@ fn app(
     seller_balances: SellerBalanceRepository,
 ) -> Router {
     Router::new()
+        .route("/internal/products/vector", get(get_products_for_vector))
         .route("/api/products", get(get_product_list).post(create_product))
         .route(
             "/api/products/{product_id}",
@@ -420,6 +479,36 @@ fn app(
         .with_state(AppState { products })
         .merge(image::router(images))
         .merge(seller_balance::router(seller_balances))
+}
+
+async fn get_products_for_vector(
+    State(state): State<AppState>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    let options = match internal_product_options(&query) {
+        Ok(options) => options,
+        Err((status, message)) => {
+            return response::<serde_json::Value>(status, None, message).into_response();
+        }
+    };
+    let (products, total_elements) = state.products.find_all_for_vector(&options);
+    let content = products
+        .into_iter()
+        .map(ProductVectorItem::from)
+        .collect::<Vec<_>>();
+    let number_of_elements = content.len();
+    let total_pages = total_elements.div_ceil(options.size);
+
+    Json(ProductVectorPage {
+        content,
+        total_pages,
+        total_elements,
+        first: options.page == 0,
+        last: options.page.saturating_add(1) >= total_pages,
+        size: options.size,
+        number_of_elements,
+    })
+    .into_response()
 }
 
 async fn create_product(
@@ -619,6 +708,44 @@ fn product_list_options(
         page,
         size,
         descending,
+    })
+}
+
+fn internal_product_options(
+    query: &HashMap<String, String>,
+) -> Result<InternalProductOptions, (StatusCode, &'static str)> {
+    let page = query
+        .get("page")
+        .ok_or((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Required request parameter 'page' for method parameter type int is not present",
+        ))?
+        .parse::<i32>()
+        .map_err(|_| (StatusCode::BAD_REQUEST, INVALID_PARAMETER_MESSAGE))?;
+    let size = query
+        .get("size")
+        .ok_or((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Required request parameter 'size' for method parameter type int is not present",
+        ))?
+        .parse::<i32>()
+        .map_err(|_| (StatusCode::BAD_REQUEST, INVALID_PARAMETER_MESSAGE))?;
+    if page < 0 {
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Page index must not be less than zero",
+        ));
+    }
+    if size < 1 {
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Page size must not be less than one",
+        ));
+    }
+
+    Ok(InternalProductOptions {
+        page: page as usize,
+        size: size as usize,
     })
 }
 
@@ -1077,6 +1204,87 @@ mod tests {
             get_as([], "/api/products?size=0", &Uuid::new_v4().to_string()).await;
         assert_eq!(paging_status, StatusCode::BAD_REQUEST);
         assert_eq!(paging_body["message"], INVALID_PARAMETER_MESSAGE);
+    }
+
+    #[tokio::test]
+    async fn returns_vector_products_in_product_id_order_with_paging() {
+        let mut first = product();
+        first.product_id = Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
+        first.name = "첫 상품".to_owned();
+        let mut second = product();
+        second.product_id = Uuid::parse_str("00000000-0000-0000-0000-000000000002").unwrap();
+        second.name = "두 번째 상품".to_owned();
+        let mut third = product();
+        third.product_id = Uuid::parse_str("00000000-0000-0000-0000-000000000003").unwrap();
+        third.name = "세 번째 상품".to_owned();
+
+        let (status, body) = get(
+            [third, first, second.clone()],
+            "/internal/products/vector?page=1&size=1",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            body,
+            serde_json::json!({
+                "content": [{
+                    "productId": second.product_id,
+                    "name": "두 번째 상품",
+                    "description": "상품 설명",
+                    "category": "FOOD"
+                }],
+                "totalPages": 3,
+                "totalElements": 3,
+                "first": false,
+                "last": false,
+                "size": 1,
+                "numberOfElements": 1
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn returns_an_empty_vector_page() {
+        let (status, body) = get([], "/internal/products/vector?page=0&size=10").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            body,
+            serde_json::json!({
+                "content": [],
+                "totalPages": 0,
+                "totalElements": 0,
+                "first": true,
+                "last": true,
+                "size": 10,
+                "numberOfElements": 0
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn vector_feed_preserves_legacy_invalid_paging_errors() {
+        let (invalid_status, invalid) =
+            get([], "/internal/products/vector?page=invalid&size=10").await;
+        assert_eq!(invalid_status, StatusCode::BAD_REQUEST);
+        assert_eq!(invalid["message"], INVALID_PARAMETER_MESSAGE);
+
+        let (missing_status, missing) = get([], "/internal/products/vector?size=10").await;
+        assert_eq!(missing_status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            missing["message"],
+            "Required request parameter 'page' for method parameter type int is not present"
+        );
+
+        let (negative_status, negative) =
+            get([], "/internal/products/vector?page=-1&size=10").await;
+        assert_eq!(negative_status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(negative["message"], "Page index must not be less than zero");
+
+        let (zero_status, zero) = get([], "/internal/products/vector?page=0&size=0").await;
+        assert_eq!(zero_status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(zero["message"], "Page size must not be less than one");
     }
 
     #[tokio::test]
