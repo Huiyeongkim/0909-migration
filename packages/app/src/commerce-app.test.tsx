@@ -13,6 +13,22 @@ describe("CommerceApp", () => {
     expect(desktop).toContain("DESKTOP");
   });
 
+  it("renders purchase detail on an independent route", () => {
+    const markup = renderToStaticMarkup(<CommerceApp target="web" client={clientStub()} storage={memoryStorage()} initialPath="/purchases/purchase-1" />);
+
+    expect(markup).toContain("PURCHASE DETAIL");
+    expect(markup).toContain("상세 정보를 불러오는 중입니다.");
+    expect(markup).not.toContain("ALL DROP");
+  });
+
+  it("protects the seller console behind the existing local session", () => {
+    const markup = renderToStaticMarkup(<CommerceApp target="web" client={clientStub()} storage={memoryStorage()} initialPath="/admin" />);
+
+    expect(markup).toContain("계정에 먼저 로그인해 주세요");
+    expect(markup).toContain("판매자 관리는 로그인 후 사용할 수 있습니다.");
+    expect(markup).not.toContain("SELLER CONSOLE");
+  });
+
   it("logs in with credentials and persists only the returned local session", async () => {
     const client = clientStub();
     client.login = vi.fn().mockResolvedValue({ accessToken: "token-1", memberId: "member-1" });
@@ -47,11 +63,13 @@ describe("CommerceApp", () => {
 function clientStub(): CommerceClient {
   return {
     register: vi.fn(), login: vi.fn(), logout: vi.fn(), getProduct: vi.fn(),
+    listSellerProducts: vi.fn(), createProduct: vi.fn(), updateProduct: vi.fn(), deleteProduct: vi.fn(),
     listGroupPurchases: vi.fn().mockResolvedValue({
       content: [], totalPages: 0, totalElements: 0, first: true, last: true,
       size: 50, numberOfElements: 0,
     }),
-    getGroupPurchase: vi.fn(), addCart: vi.fn(),
+    listSellerGroupPurchases: vi.fn(), getGroupPurchase: vi.fn(),
+    createGroupPurchase: vi.fn(), updateGroupPurchase: vi.fn(), deleteGroupPurchase: vi.fn(), addCart: vi.fn(),
     listCarts: vi.fn().mockResolvedValue({
       content: [], totalPages: 0, totalElements: 0, first: true, last: true,
       size: 50, numberOfElements: 0,
