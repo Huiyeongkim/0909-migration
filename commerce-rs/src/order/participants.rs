@@ -76,6 +76,8 @@ mod tests {
             price: 1_000,
             paid_price: 1_000,
             status,
+            payment_method: None,
+            paid_at: None,
             member_id,
             address: "서울시 테스트 주소".to_owned(),
             address_detail: "101호".to_owned(),

@@ -251,6 +251,16 @@ impl GroupPurchaseRepository {
     }
 
     #[cfg(test)]
+    pub(crate) fn order_current_quantity(&self, purchase_id: Uuid) -> Option<i32> {
+        self.purchases
+            .read()
+            .unwrap()
+            .iter()
+            .find(|purchase| purchase.group_purchase_id == purchase_id)
+            .map(|purchase| purchase.current_quantity)
+    }
+
+    #[cfg(test)]
     pub(crate) fn for_cart_tests(
         purchases: impl IntoIterator<Item = (Uuid, &'static str)>,
     ) -> Self {

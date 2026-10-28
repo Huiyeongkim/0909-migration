@@ -399,7 +399,7 @@
     {
       "id": "order-lifecycle-point",
       "title": "Migrate local point charge, point payment, and order expiration",
-      "status": "ready",
+      "status": "complete",
       "sourcePaths": [
         "commerce/src/main/java/store/_0982/commerce/presentation/order/OrderCronController.java",
         "commerce/src/main/java/store/_0982/commerce/application/order/OrderExpirationService.java",
