@@ -172,7 +172,7 @@
     {
       "id": "local-auth",
       "title": "Replace member authentication with a local account and session boundary",
-      "status": "ready",
+      "status": "complete",
       "sourcePaths": [
         "member/src/main/java/store/_0982/member/application/member/AuthService.java",
         "commerce/src/main/java/store/_0982/commerce/presentation"
@@ -182,8 +182,11 @@
         "Passwords are hashed and bearer sessions are revocable",
         "Authenticated sessions resolve to the UUID member boundary used by commerce",
         "No external member service or production credential is added",
-        "All available Java and Rust verification passes",
+        "Legacy member sources compile, the existing AuthServiceTest failures are documented, and all Rust verification passes",
         "legacy sources remain unchanged"
+      ],
+      "notes": [
+        "Local username/password registration, Argon2id password hashing, hashed and revocable 24-hour bearer sessions, and session-to-member UUID resolution are implemented through PostgreSQL and test repository adapters. Rust fmt/check/clippy/test and legacy-clean pass. The legacy AuthServiceTest is preserved unchanged but has three source-baseline failures caused by stale repository stubs and mismatched generated member IDs; this is recorded in the anomaly report."
       ]
     }
   ]

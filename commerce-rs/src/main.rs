@@ -6,6 +6,7 @@ use axum::{
     Json, Router,
 };
 use image::ImageRepository;
+use local_auth::AuthRepository;
 use seller_balance::SellerBalanceRepository;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
@@ -18,6 +19,7 @@ use uuid::Uuid;
 
 mod group_purchase;
 mod image;
+mod local_auth;
 mod seller_balance;
 
 const PRODUCT_FOUND_MESSAGE: &str = "상품 조회가 완료되었습니다.";
@@ -467,6 +469,7 @@ fn app(
     products: Arc<dyn ProductRepository>,
     images: ImageRepository,
     seller_balances: SellerBalanceRepository,
+    auth: AuthRepository,
 ) -> Router {
     let group_purchases = group_purchase::GroupPurchaseRepository::empty();
     Router::new()
@@ -484,6 +487,7 @@ fn app(
         .merge(group_purchase::router(group_purchases, products))
         .merge(image::router(images))
         .merge(seller_balance::router(seller_balances))
+        .merge(local_auth::router(auth))
 }
 
 async fn get_products_for_vector(
@@ -802,7 +806,8 @@ async fn main() -> std::io::Result<()> {
         app(
             Arc::new(LocalProductRepository::new([])),
             ImageRepository::postgres(pool.clone()),
-            SellerBalanceRepository::postgres(pool),
+            SellerBalanceRepository::postgres(pool.clone()),
+            AuthRepository::postgres(pool),
         ),
     )
     .await
@@ -875,6 +880,7 @@ mod tests {
             products,
             ImageRepository::default(),
             SellerBalanceRepository::default(),
+            AuthRepository::default(),
         )
         .oneshot(request)
         .await
