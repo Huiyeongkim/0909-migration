@@ -417,7 +417,7 @@ function createId() {
     return (character === "x" ? random : (random & 0x3) | 0x8).toString(16);
   });
 }
-function defaultApiBaseUrl() { return typeof location !== "undefined" && /^https?:$/.test(location.protocol) ? location.origin : "http://127.0.0.1:3000"; }
+function defaultApiBaseUrl() { return typeof location !== "undefined" && /^https?:$/.test(location.protocol) ? location.origin : "http://127.0.0.1:8080"; }
 function browserStorage(): StorageLike { try { return localStorage; } catch { const data = new Map<string, string>(); return { getItem: (key) => data.get(key) ?? null, setItem: (key, value) => { data.set(key, value); }, removeItem: (key) => { data.delete(key); } }; } }
 function readSession(storage: StorageLike): CommerceSession | null { try { const raw = storage.getItem(SESSION_KEY); if (!raw) return null; const value = JSON.parse(raw) as Partial<CommerceSession>; return typeof value.accessToken === "string" && typeof value.memberId === "string" ? { accessToken: value.accessToken, memberId: value.memberId } : null; } catch { return null; } }
 
