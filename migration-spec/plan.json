@@ -190,7 +190,7 @@
     {
       "id": "group-purchase-likes",
       "title": "Migrate group-purchase likes",
-      "status": "ready",
+      "status": "complete",
       "sourcePaths": [
         "commerce/src/main/java/store/_0982/commerce/presentation/grouppurchase/GroupPurchaseController.java",
         "commerce/src/main/java/store/_0982/commerce/application/grouppurchase/GroupPurchaseLikeService.java",
@@ -201,6 +201,9 @@
         "Per-member duplicate protection and like-count consistency are covered",
         "All available Java and Rust verification passes",
         "legacy/commerce remains unchanged"
+      ],
+      "notes": [
+        "POST and DELETE like routes now preserve the legacy envelopes and error order through a local repository boundary. Member/purchase uniqueness and the aggregate like count update under the same lock order, including concurrent duplicate protection."
       ]
     },
     {

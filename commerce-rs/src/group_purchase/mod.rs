@@ -6,12 +6,13 @@ use axum::{
     extract::{rejection::JsonRejection, rejection::QueryRejection, Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
+    collections::HashSet,
     sync::{Arc, RwLock},
 };
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
@@ -33,6 +34,7 @@ const PURCHASE_DELETED_MESSAGE: &str = "공동구매가 삭제되었습니다";
 #[derive(Clone)]
 pub struct GroupPurchaseRepository {
     purchases: Arc<RwLock<Vec<GroupPurchase>>>,
+    likes: Arc<RwLock<HashSet<(Uuid, Uuid)>>>,
 }
 
 #[derive(Clone)]
@@ -44,6 +46,7 @@ struct GroupPurchase {
     description: Option<String>,
     discounted_price: i64,
     current_quantity: i32,
+    like_count: i32,
     start_date: String,
     end_date: String,
     seller_id: Uuid,
@@ -239,6 +242,7 @@ impl GroupPurchaseRepository {
     fn new(purchases: impl IntoIterator<Item = GroupPurchase>) -> Self {
         Self {
             purchases: Arc::new(RwLock::new(purchases.into_iter().collect())),
+            likes: Arc::new(RwLock::new(HashSet::new())),
         }
     }
 
@@ -288,6 +292,7 @@ impl GroupPurchaseRepository {
             description: new_purchase.write.description,
             discounted_price: new_purchase.write.discounted_price,
             current_quantity: 0,
+            like_count: 0,
             start_date: new_purchase.write.start_date,
             end_date: new_purchase.write.end_date,
             seller_id: new_purchase.seller_id,
@@ -348,6 +353,10 @@ impl GroupPurchaseRepository {
         if purchases[index].seller_id != seller_id {
             return DeleteGroupPurchaseResult::Forbidden;
         }
+        self.likes
+            .write()
+            .unwrap()
+            .retain(|(_, liked_purchase_id)| *liked_purchase_id != purchase_id);
         purchases.remove(index);
         DeleteGroupPurchaseResult::Deleted
     }
@@ -360,6 +369,10 @@ pub fn router(purchases: GroupPurchaseRepository, products: Arc<dyn ProductRepos
         .route(
             "/api/purchases/{purchase_id}",
             get(detail).patch(update).delete(delete_purchase),
+        )
+        .route(
+            "/api/purchases/{purchase_id}/likes",
+            post(likes::like).delete(likes::unlike),
         )
         .with_state(GroupPurchaseState {
             purchases,
@@ -786,6 +799,7 @@ mod tests {
             description: Some("공동구매 설명".to_owned()),
             discounted_price: 8_000,
             current_quantity: 3,
+            like_count: 0,
             start_date: "2026-01-01T00:00:00Z".to_owned(),
             end_date: "2026-01-31T00:00:00Z".to_owned(),
             seller_id,
