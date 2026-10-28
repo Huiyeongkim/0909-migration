@@ -240,6 +240,43 @@ impl GroupPurchaseRepository {
         Self::new([])
     }
 
+    pub(crate) fn cart_availability(&self, purchase_id: Uuid) -> Option<bool> {
+        self.purchases
+            .read()
+            .unwrap()
+            .iter()
+            .find(|purchase| purchase.group_purchase_id == purchase_id)
+            .map(|purchase| purchase.status == "OPEN")
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_cart_tests(
+        purchases: impl IntoIterator<Item = (Uuid, &'static str)>,
+    ) -> Self {
+        Self::new(
+            purchases
+                .into_iter()
+                .map(|(purchase_id, status)| GroupPurchase {
+                    group_purchase_id: purchase_id,
+                    min_quantity: 1,
+                    max_quantity: 10,
+                    title: "테스트 공동구매".to_owned(),
+                    description: None,
+                    discounted_price: 1_000,
+                    current_quantity: 0,
+                    like_count: 0,
+                    start_date: "2026-01-01T00:00:00Z".to_owned(),
+                    end_date: "2026-01-31T00:00:00Z".to_owned(),
+                    seller_id: Uuid::new_v4(),
+                    product_id: Uuid::new_v4(),
+                    image_url: None,
+                    status: status.to_owned(),
+                    created_at: "2026-01-01T00:00:00Z".to_owned(),
+                    updated_at: None,
+                }),
+        )
+    }
+
     fn new(purchases: impl IntoIterator<Item = GroupPurchase>) -> Self {
         Self {
             purchases: Arc::new(RwLock::new(purchases.into_iter().collect())),
