@@ -5,12 +5,14 @@ use axum::{
     Json, Router,
 };
 use image::ImageRepository;
+use seller_balance::SellerBalanceRepository;
 use serde::Serialize;
 use sqlx::postgres::PgPoolOptions;
 use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
 
 mod image;
+mod seller_balance;
 
 const PRODUCT_FOUND_MESSAGE: &str = "상품 조회가 완료되었습니다.";
 const PRODUCT_LIST_FOUND_MESSAGE: &str = "내가 등록한 상품 목록 조회가 완료되었습니다.";
@@ -146,12 +148,17 @@ struct ApiResponse<T> {
     message: &'static str,
 }
 
-fn app(products: Arc<dyn ProductRepository>, images: ImageRepository) -> Router {
+fn app(
+    products: Arc<dyn ProductRepository>,
+    images: ImageRepository,
+    seller_balances: SellerBalanceRepository,
+) -> Router {
     Router::new()
         .route("/api/products", get(get_product_list))
         .route("/api/products/{product_id}", get(get_product_detail))
         .with_state(AppState { products })
         .merge(image::router(images))
+        .merge(seller_balance::router(seller_balances))
 }
 
 async fn get_product_list(
@@ -279,7 +286,8 @@ async fn main() -> std::io::Result<()> {
         listener,
         app(
             Arc::new(LocalProductRepository::new([])),
-            ImageRepository::postgres(pool),
+            ImageRepository::postgres(pool.clone()),
+            SellerBalanceRepository::postgres(pool),
         ),
     )
     .await
@@ -344,6 +352,7 @@ mod tests {
         let response = app(
             Arc::new(LocalProductRepository::new(products)),
             ImageRepository::default(),
+            SellerBalanceRepository::default(),
         )
         .oneshot(request)
         .await
