@@ -35,6 +35,13 @@ service in `Huiyeongkim/0909` to `commerce-rs`.
 - Link the pull request to its issue and include verification evidence.
 - Do not merge a pull request unless the user explicitly asks.
 
+## Worktree harness
+
+- Use the `worktree-task-runner` Codex skill with the repository `harness.json`.
+- Keep reusable orchestration behavior in the harness repository and keep only Commerce paths, commands, locks, and completion conditions here.
+- Run mutating harness commands only after previewing them without `--apply`.
+- A task is not dependency-complete until its pull request is merged and `sync --apply` confirms the merge.
+
 ## Verification
 
 Run the relevant Java test first when possible, then run:
