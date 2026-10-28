@@ -444,11 +444,8 @@
       "setup": [],
       "verification": [
         {
-          "id": "legacy-auth-tests",
-          "command": [
-            "./gradlew", "-p", "member", "test",
-            "--tests", "store._0982.member.application.member.AuthServiceTest"
-          ],
+          "id": "legacy-member-test-classes",
+          "command": ["./gradlew", "-p", "member", "testClasses", "--no-daemon"],
           "cwd": "legacy"
         }
       ],
@@ -457,6 +454,10 @@
         {"id": "auth-tests", "description": "해시 비밀번호, credential 실패, session 조회와 revoke focused 테스트가 있다."},
         {"id": "member-boundary", "description": "인증 세션이 commerce의 UUID member boundary로 해석된다."},
         {"id": "no-external-member", "description": "외부 member 서비스와 운영 자격증명을 추가하지 않았다."},
+        {
+          "id": "legacy-auth-baseline",
+          "description": "AuthServiceTest의 기존 실패 원인과 관찰 결과가 anomaly에 기록되어 있다."
+        },
         {
           "id": "legacy-unchanged",
           "description": "레거시 소스가 변경되지 않았다.",
