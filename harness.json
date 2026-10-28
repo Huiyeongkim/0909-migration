@@ -387,6 +387,85 @@
       ],
       "requiresApproval": false,
       "prLabels": []
+    },
+    {
+      "id": "group-purchase-write",
+      "title": "공동구매 생성·수정·삭제 마이그레이션",
+      "status": "ready",
+      "dependencies": ["group-purchase-read", "product-write"],
+      "locks": ["group-purchase-domain", "group-write-plan"],
+      "allowedPaths": [
+        "commerce-rs/**",
+        "migration-spec/contracts/group-purchase-write.md",
+        "migration-spec/anomalies/group-purchase-write.md",
+        "migration-spec/plan.json"
+      ],
+      "forbiddenPaths": ["legacy/**"],
+      "setup": [],
+      "verification": [
+        {
+          "id": "legacy-group-purchase-tests",
+          "command": [
+            "./gradlew", "-p", "commerce", "test",
+            "--tests", "store._0982.commerce.application.grouppurchase.GroupPurchaseServiceTest",
+            "--tests", "store._0982.commerce.presentation.grouppurchase.GroupPurchaseControllerTest"
+          ],
+          "cwd": "legacy"
+        }
+      ],
+      "doneWhen": [
+        {"id": "legacy-contract", "description": "공동구매 생성·수정·삭제 계약이 기록되어 있다."},
+        {"id": "write-tests", "description": "검증, 소유권, OPEN lifecycle과 product reference focused 테스트가 있다."},
+        {"id": "repository-writes", "description": "공동구매 변경이 repository 경계를 사용한다."},
+        {"id": "events-deferred", "description": "외부 이벤트를 event-boundaries 단위로 명시적으로 유예했다."},
+        {
+          "id": "legacy-unchanged",
+          "description": "레거시 commerce 소스가 변경되지 않았다.",
+          "command": ["git", "diff", "--exit-code", "--", "commerce"],
+          "cwd": "legacy"
+        }
+      ],
+      "requiresApproval": false,
+      "prLabels": []
+    },
+    {
+      "id": "local-auth",
+      "title": "아이디·비밀번호 로컬 인증 구현",
+      "status": "ready",
+      "dependencies": ["product-get-detail"],
+      "locks": ["identity-domain", "local-auth-plan"],
+      "allowedPaths": [
+        "commerce-rs/**",
+        "migration-spec/contracts/local-auth.md",
+        "migration-spec/anomalies/local-auth.md",
+        "migration-spec/plan.json"
+      ],
+      "forbiddenPaths": ["legacy/**"],
+      "setup": [],
+      "verification": [
+        {
+          "id": "legacy-auth-tests",
+          "command": [
+            "./gradlew", "-p", "member", "test",
+            "--tests", "store._0982.member.application.member.AuthServiceTest"
+          ],
+          "cwd": "legacy"
+        }
+      ],
+      "doneWhen": [
+        {"id": "local-contract", "description": "username/password 등록·로그인·세션·로그아웃 계약이 기록되어 있다."},
+        {"id": "auth-tests", "description": "해시 비밀번호, credential 실패, session 조회와 revoke focused 테스트가 있다."},
+        {"id": "member-boundary", "description": "인증 세션이 commerce의 UUID member boundary로 해석된다."},
+        {"id": "no-external-member", "description": "외부 member 서비스와 운영 자격증명을 추가하지 않았다."},
+        {
+          "id": "legacy-unchanged",
+          "description": "레거시 소스가 변경되지 않았다.",
+          "command": ["git", "diff", "--exit-code", "--", "member", "commerce"],
+          "cwd": "legacy"
+        }
+      ],
+      "requiresApproval": false,
+      "prLabels": []
     }
   ]
 }
