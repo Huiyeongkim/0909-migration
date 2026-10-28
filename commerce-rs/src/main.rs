@@ -21,6 +21,7 @@ mod cart;
 mod group_purchase;
 mod image;
 mod local_auth;
+mod order;
 mod seller_balance;
 
 const PRODUCT_FOUND_MESSAGE: &str = "상품 조회가 완료되었습니다.";
@@ -490,6 +491,7 @@ fn app(
         .merge(image::router(images))
         .merge(seller_balance::router(seller_balances))
         .merge(local_auth::router(auth))
+        .merge(order::router())
 }
 
 async fn get_products_for_vector(
