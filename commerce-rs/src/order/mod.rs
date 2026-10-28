@@ -3,7 +3,10 @@ use crate::{
     ProductRepository,
 };
 use axum::Router;
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 use time::{format_description::well_known::Rfc3339, Duration, OffsetDateTime};
 use uuid::Uuid;
 
@@ -19,10 +22,13 @@ pub(crate) struct OrderRepository {
     store: Arc<Mutex<OrderStore>>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct OrderStore {
     orders: Vec<Order>,
     settlements: Vec<OrderSettlement>,
+    cancellations: Vec<CanceledOrder>,
+    point_balances: HashMap<Uuid, i64>,
+    point_ledger: Vec<PointLedgerEntry>,
 }
 
 #[derive(Clone)]
@@ -80,6 +86,52 @@ pub(super) struct OrderSettlement {
     pub(super) settlement_amount: i64,
     pub(super) created_at: String,
     pub(super) settled_at: Option<String>,
+}
+
+#[derive(Clone)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by order cancellation reads and later persistence migration"
+    )
+)]
+pub(super) struct CanceledOrder {
+    pub(super) canceled_order_id: Uuid,
+    pub(super) order_id: Uuid,
+    pub(super) member_id: Uuid,
+    pub(super) seller_id: Uuid,
+    pub(super) original_paid_amount: i64,
+    pub(super) cancel_fee_amount: i64,
+    pub(super) shipping_fee_amount: i64,
+    pub(super) refund_amount: i64,
+    pub(super) policy_id: &'static str,
+    pub(super) policy_snapshot: String,
+    pub(super) status: &'static str,
+    pub(super) reason: &'static str,
+    pub(super) detail_reason: String,
+    pub(super) idempotency_key: String,
+    pub(super) canceled_at: String,
+    pub(super) returned_at: Option<String>,
+    pub(super) created_at: String,
+    pub(super) updated_at: Option<String>,
+}
+
+#[derive(Clone)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by the later local-payment persistence migration"
+    )
+)]
+pub(super) struct PointLedgerEntry {
+    pub(super) transaction_id: Uuid,
+    pub(super) member_id: Uuid,
+    pub(super) order_id: Uuid,
+    pub(super) amount: i64,
+    pub(super) kind: &'static str,
+    pub(super) created_at: String,
 }
 
 pub(super) struct NewOrder {
