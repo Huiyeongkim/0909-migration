@@ -287,7 +287,7 @@
     {
       "id": "order-module-wiring",
       "title": "Prepare isolated order feature module boundaries",
-      "status": "ready",
+      "status": "complete",
       "sourcePaths": [
         "commerce/src/main/java/store/_0982/commerce/presentation/order",
         "commerce/src/main/java/store/_0982/commerce/application/order"
@@ -297,6 +297,9 @@
         "The empty order router adds no HTTP behavior",
         "Legacy commerce sources compile and all Rust verification passes",
         "legacy/commerce remains unchanged"
+      ],
+      "notes": [
+        "Connected an empty order router and reserved create, read, confirm, cancel, lifecycle, and participant files without adding routes or observable behavior."
       ]
     },
     {
