@@ -11,7 +11,8 @@ service in `Huiyeongkim/0909` to `commerce-rs`.
 - Write product code only under `commerce-rs/`.
 - Write migration contracts, decisions, and anomaly reports only under
   `migration-spec/`.
-- Work on exactly one migration unit with status `ready` or `in_progress`.
+- Work on exactly one migration unit per branch and worktree. Multiple units may
+  run concurrently only when `harness.json` dependencies and locks allow it.
 - Preserve observable behavior before proposing improvements.
 - Do not add production integrations, deployment, credentials, or production
   data access.

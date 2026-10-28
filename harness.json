@@ -100,6 +100,107 @@
       ],
       "requiresApproval": false,
       "prLabels": []
+    },
+    {
+      "id": "product-get-list",
+      "title": "판매자 상품 목록 마이그레이션",
+      "status": "ready",
+      "dependencies": ["product-get-detail"],
+      "locks": ["product-domain", "product-plan"],
+      "allowedPaths": [
+        "commerce-rs/**",
+        "migration-spec/contracts/product-get-list.md",
+        "migration-spec/anomalies/product-get-list.md",
+        "migration-spec/plan.json"
+      ],
+      "forbiddenPaths": ["legacy/**"],
+      "setup": [],
+      "verification": [
+        {
+          "id": "legacy-product-tests",
+          "command": [
+            "./gradlew",
+            "-p",
+            "commerce",
+            "test",
+            "--tests",
+            "store._0982.commerce.application.product.ProductServiceTest",
+            "--tests",
+            "store._0982.commerce.presentation.product.ProductControllerTest"
+          ],
+          "cwd": "legacy"
+        }
+      ],
+      "doneWhen": [
+        {
+          "id": "legacy-contract",
+          "description": "판매자 header, paging, sorting, envelope과 오류 계약이 기록되어 있다."
+        },
+        {
+          "id": "list-tests",
+          "description": "목록과 빈 결과를 검증하는 focused Rust 테스트가 있다."
+        },
+        {
+          "id": "repository-filter",
+          "description": "저장소 경계에서 판매자 필터와 레거시 정렬을 적용한다."
+        },
+        {
+          "id": "legacy-unchanged",
+          "description": "레거시 commerce 소스가 변경되지 않았다.",
+          "command": ["git", "diff", "--exit-code", "--", "commerce"],
+          "cwd": "legacy"
+        }
+      ],
+      "requiresApproval": false,
+      "prLabels": []
+    },
+    {
+      "id": "image-api",
+      "title": "이미지 API를 DB 저장 방식으로 대체",
+      "status": "ready",
+      "dependencies": ["product-get-detail"],
+      "locks": ["image-domain", "image-plan"],
+      "allowedPaths": [
+        "commerce-rs/**",
+        "migration-spec/contracts/image-api.md",
+        "migration-spec/anomalies/image-api.md",
+        "migration-spec/plan.json"
+      ],
+      "forbiddenPaths": ["legacy/**"],
+      "setup": [],
+      "verification": [
+        {
+          "id": "legacy-commerce-test-classes",
+          "command": ["./gradlew", "-p", "commerce", "testClasses"],
+          "cwd": "legacy"
+        }
+      ],
+      "doneWhen": [
+        {
+          "id": "legacy-contract",
+          "description": "상품·공동구매 이미지 HTTP 계약이 기록되어 있다."
+        },
+        {
+          "id": "database-storage",
+          "description": "이미지 바이트와 메타데이터가 DB 저장소 경계를 통해 저장된다."
+        },
+        {
+          "id": "namespace-tests",
+          "description": "상품·공동구매 namespace의 업로드·조회·삭제 focused 테스트가 있다."
+        },
+        {
+          "id": "no-s3",
+          "description": "AWS 자격증명과 실제 S3 연동을 추가하지 않았다."
+        },
+        {
+          "id": "legacy-unchanged",
+          "description": "레거시 commerce 소스가 변경되지 않았다.",
+          "command": ["git", "diff", "--exit-code", "--", "commerce"],
+          "cwd": "legacy"
+        }
+      ],
+      "requiresApproval": false,
+      "prLabels": []
     }
   ]
 }

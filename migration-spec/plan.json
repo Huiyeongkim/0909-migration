@@ -24,6 +24,43 @@
       "notes": [
         "Axum serves the detail route through a local repository boundary; focused HTTP tests cover success, missing product, and invalid UUID. Durable storage is deferred to a later migration unit."
       ]
+    },
+    {
+      "id": "product-get-list",
+      "title": "Migrate seller product list",
+      "status": "ready",
+      "sourcePaths": [
+        "commerce/src/main/java/store/_0982/commerce/presentation/product/ProductController.java",
+        "commerce/src/main/java/store/_0982/commerce/application/product/ProductService.java",
+        "commerce/src/main/java/store/_0982/commerce/application/product/dto/ProductListInfo.java",
+        "commerce/src/main/java/store/_0982/commerce/infrastructure/product/ProductRepositoryAdaptor.java",
+        "commerce/src/test/java/store/_0982/commerce/application/product/ProductServiceTest.java"
+      ],
+      "doneWhen": [
+        "Seller header, pagination, sorting, response envelope, and errors are documented",
+        "Rust tests cover list and empty results",
+        "The local repository applies the seller filter and legacy ordering",
+        "All available Java and Rust verification passes",
+        "legacy/commerce remains unchanged"
+      ]
+    },
+    {
+      "id": "image-api",
+      "title": "Replace product and group-purchase image APIs",
+      "status": "ready",
+      "sourcePaths": [
+        "commerce/src/main/java/store/_0982/commerce/presentation/product/ProductImageController.java",
+        "commerce/src/main/java/store/_0982/commerce/presentation/grouppurchase/GroupPurchaseImageController.java",
+        "commerce/src/main/java/store/_0982/commerce/application/s3"
+      ],
+      "doneWhen": [
+        "The legacy HTTP contracts are documented",
+        "Image bytes and metadata are stored through a database repository boundary",
+        "Product and group-purchase namespaces are covered by focused tests",
+        "No AWS credential or production S3 integration is added",
+        "All available Java and Rust verification passes",
+        "legacy/commerce remains unchanged"
+      ]
     }
   ]
 }
