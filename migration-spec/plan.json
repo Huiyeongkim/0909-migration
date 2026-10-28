@@ -245,6 +245,40 @@
       ]
     },
     {
+      "id": "cart",
+      "title": "Migrate cart operations",
+      "status": "ready",
+      "sourcePaths": [
+        "commerce/src/main/java/store/_0982/commerce/presentation/cart",
+        "commerce/src/main/java/store/_0982/commerce/application/cart",
+        "commerce/src/main/java/store/_0982/commerce/domain/cart",
+        "commerce/src/main/java/store/_0982/commerce/infrastructure/cart"
+      ],
+      "doneWhen": [
+        "Add, update, soft delete, flush, and member-list contracts are documented",
+        "OPEN validation, ownership, quantity changes, soft-zero, and paging are covered",
+        "Legacy commerce sources compile and all Rust verification passes",
+        "legacy/commerce remains unchanged"
+      ]
+    },
+    {
+      "id": "group-purchase-internal-search",
+      "title": "Migrate internal group-purchase search rows",
+      "status": "ready",
+      "sourcePaths": [
+        "commerce/src/main/java/store/_0982/commerce/presentation/grouppurchase/GroupPurchaseInternalController.java",
+        "commerce/src/main/java/store/_0982/commerce/application/grouppurchase/GroupPurchaseSearchService.java",
+        "commerce/src/main/java/store/_0982/commerce/application/grouppurchase/dto/GroupPurchaseSearchRow.java"
+      ],
+      "doneWhen": [
+        "The wrapperless response and complete row contract are documented",
+        "Input order, duplicates, empty input, and missing joins are covered",
+        "No external search or recommendation service is connected",
+        "Legacy commerce sources compile and all Rust verification passes",
+        "legacy/commerce remains unchanged"
+      ]
+    },
+    {
       "id": "local-auth",
       "title": "Replace member authentication with a local account and session boundary",
       "status": "complete",

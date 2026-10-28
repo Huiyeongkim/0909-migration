@@ -596,6 +596,77 @@
       "prLabels": []
     },
     {
+      "id": "cart",
+      "title": "장바구니 API 마이그레이션",
+      "status": "ready",
+      "dependencies": ["cart-search-wiring"],
+      "locks": ["cart-domain", "cart-plan"],
+      "allowedPaths": [
+        "commerce-rs/src/cart.rs",
+        "commerce-rs/src/group_purchase/mod.rs",
+        "migration-spec/contracts/cart.md",
+        "migration-spec/anomalies/cart.md",
+        "migration-spec/plan.json"
+      ],
+      "forbiddenPaths": ["legacy/**"],
+      "setup": [],
+      "verification": [
+        {
+          "id": "legacy-commerce-test-classes",
+          "command": ["./gradlew", "-p", "commerce", "testClasses", "--no-daemon"],
+          "cwd": "legacy"
+        }
+      ],
+      "doneWhen": [
+        {"id": "cart-contract", "description": "추가·수정·삭제·비우기·목록 HTTP 계약과 오류가 기록되어 있다."},
+        {"id": "cart-tests", "description": "OPEN 검증, 수량 누적·교체, 소유권, soft-zero, paging focused 테스트가 있다."},
+        {"id": "cart-boundary", "description": "장바구니 변경과 조회가 로컬 저장소 경계를 사용한다."},
+        {
+          "id": "legacy-unchanged",
+          "description": "레거시 commerce 소스가 변경되지 않았다.",
+          "command": ["git", "diff", "--exit-code", "--", "commerce"],
+          "cwd": "legacy"
+        }
+      ],
+      "requiresApproval": false,
+      "prLabels": []
+    },
+    {
+      "id": "group-purchase-internal-search",
+      "title": "공동구매 내부 검색 행 조회 마이그레이션",
+      "status": "ready",
+      "dependencies": ["cart-search-wiring"],
+      "locks": ["group-purchase-search-domain", "group-purchase-search-plan"],
+      "allowedPaths": [
+        "commerce-rs/src/group_purchase/search.rs",
+        "migration-spec/contracts/group-purchase-internal-search.md",
+        "migration-spec/anomalies/group-purchase-internal-search.md",
+        "migration-spec/plan.json"
+      ],
+      "forbiddenPaths": ["legacy/**"],
+      "setup": [],
+      "verification": [
+        {
+          "id": "legacy-commerce-test-classes",
+          "command": ["./gradlew", "-p", "commerce", "testClasses", "--no-daemon"],
+          "cwd": "legacy"
+        }
+      ],
+      "doneWhen": [
+        {"id": "search-contract", "description": "bare array, 전체 필드, 순서·중복·누락 처리 계약이 기록되어 있다."},
+        {"id": "search-tests", "description": "빈 입력, 순서, 중복, missing purchase/product와 전체 row focused 테스트가 있다."},
+        {"id": "no-external-search", "description": "외부 검색·추천 서비스를 연결하지 않았다."},
+        {
+          "id": "legacy-unchanged",
+          "description": "레거시 commerce 소스가 변경되지 않았다.",
+          "command": ["git", "diff", "--exit-code", "--", "commerce"],
+          "cwd": "legacy"
+        }
+      ],
+      "requiresApproval": false,
+      "prLabels": []
+    },
+    {
       "id": "local-auth",
       "title": "아이디·비밀번호 로컬 인증 구현",
       "status": "ready",
