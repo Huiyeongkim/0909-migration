@@ -1,0 +1,19 @@
+{
+  "name": "commerce-migration",
+  "private": true,
+  "packageManager": "pnpm@11.25.0",
+  "scripts": {
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "typecheck:web": "pnpm --filter @commerce/web typecheck",
+    "test": "pnpm -r --if-present run test",
+    "test:web": "pnpm --filter @commerce/app test",
+    "build:web": "pnpm --filter @commerce/web build",
+    "build:desktop-ui": "pnpm --filter @commerce/desktop build"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.1.2",
+    "typescript": "^5.6.3",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  }
+}

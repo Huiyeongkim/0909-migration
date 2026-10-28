@@ -1,4 +1,10 @@
 legacy/
 commerce-rs/target/
+node_modules/
+apps/*/dist/
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+apps/desktop/src-tauri/icons/android/
+apps/desktop/src-tauri/icons/ios/
 .env
 .DS_Store
