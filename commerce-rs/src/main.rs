@@ -4,9 +4,13 @@ use axum::{
     routing::get,
     Json, Router,
 };
+use image::ImageRepository;
 use serde::Serialize;
+use sqlx::postgres::PgPoolOptions;
 use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
+
+mod image;
 
 const PRODUCT_FOUND_MESSAGE: &str = "상품 조회가 완료되었습니다.";
 const PRODUCT_LIST_FOUND_MESSAGE: &str = "내가 등록한 상품 목록 조회가 완료되었습니다.";
@@ -142,11 +146,12 @@ struct ApiResponse<T> {
     message: &'static str,
 }
 
-fn app(products: Arc<dyn ProductRepository>) -> Router {
+fn app(products: Arc<dyn ProductRepository>, images: ImageRepository) -> Router {
     Router::new()
         .route("/api/products", get(get_product_list))
         .route("/api/products/{product_id}", get(get_product_detail))
         .with_state(AppState { products })
+        .merge(image::router(images))
 }
 
 async fn get_product_list(
@@ -258,8 +263,26 @@ fn response<T>(
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
+    let database_url = std::env::var("DATABASE_URL")
+        .map_err(|_| std::io::Error::other("DATABASE_URL must be set"))?;
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&database_url)
+        .await
+        .map_err(std::io::Error::other)?;
+    sqlx::migrate!()
+        .run(&pool)
+        .await
+        .map_err(std::io::Error::other)?;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:8080").await?;
-    axum::serve(listener, app(Arc::new(LocalProductRepository::new([])))).await
+    axum::serve(
+        listener,
+        app(
+            Arc::new(LocalProductRepository::new([])),
+            ImageRepository::postgres(pool),
+        ),
+    )
+    .await
 }
 
 #[cfg(test)]
@@ -318,10 +341,13 @@ mod tests {
         products: impl IntoIterator<Item = ProductDetail>,
         request: Request<Body>,
     ) -> (StatusCode, serde_json::Value) {
-        let response = app(Arc::new(LocalProductRepository::new(products)))
-            .oneshot(request)
-            .await
-            .unwrap();
+        let response = app(
+            Arc::new(LocalProductRepository::new(products)),
+            ImageRepository::default(),
+        )
+        .oneshot(request)
+        .await
+        .unwrap();
         let status = response.status();
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         (status, serde_json::from_slice(&body).unwrap())
