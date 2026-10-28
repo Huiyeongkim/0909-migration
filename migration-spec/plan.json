@@ -209,7 +209,7 @@
     {
       "id": "group-purchase-participate",
       "title": "Migrate group-purchase participation quantity",
-      "status": "ready",
+      "status": "complete",
       "sourcePaths": [
         "commerce/src/main/java/store/_0982/commerce/application/grouppurchase/ParticipateService.java",
         "commerce/src/main/java/store/_0982/commerce/application/grouppurchase/GroupPurchaseQuantityService.java",
@@ -221,6 +221,9 @@
         "External events are deferred to event-boundaries",
         "Legacy commerce sources compile and all Rust verification passes",
         "legacy/commerce remains unchanged"
+      ],
+      "notes": [
+        "Added a local atomic participation boundary that preserves OPEN-only capacity checks, exact-capacity SUCCESS transition, legacy missing-purchase error precedence, and transactional rollback semantics for missing products. Deterministic threaded tests prove concurrent attempts cannot exceed max quantity; external events remain deferred. The crate-visible boundary has a narrow dead-code expectation that order-create must remove when it becomes the first production caller."
       ]
     },
     {
