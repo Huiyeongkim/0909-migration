@@ -264,7 +264,7 @@
     {
       "id": "group-purchase-internal-search",
       "title": "Migrate internal group-purchase search rows",
-      "status": "ready",
+      "status": "complete",
       "sourcePaths": [
         "commerce/src/main/java/store/_0982/commerce/presentation/grouppurchase/GroupPurchaseInternalController.java",
         "commerce/src/main/java/store/_0982/commerce/application/grouppurchase/GroupPurchaseSearchService.java",
@@ -276,6 +276,9 @@
         "No external search or recommendation service is connected",
         "Legacy commerce sources compile and all Rust verification passes",
         "legacy/commerce remains unchanged"
+      ],
+      "notes": [
+        "The wrapperless internal search route now joins existing local group-purchase and product boundaries, preserves requested order and duplicates, omits missing joins, and returns the complete legacy row shape. No external search or recommendation integration was added."
       ]
     },
     {
