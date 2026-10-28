@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "integrationBranch": "main",
+  "branchPrefix": "codex/",
+  "worktreeRoot": "../0909-migration-worktrees",
+  "remote": "origin",
+  "maxParallel": 2,
+  "protectedBranches": ["main", "dev"],
+  "defaultSetup": [
+    {
+      "id": "clone-legacy-source",
+      "command": [
+        "git",
+        "clone",
+        "--depth",
+        "1",
+        "https://github.com/Huiyeongkim/0909.git",
+        "legacy"
+      ],
+      "cwd": "."
+    }
+  ],
+  "defaultVerification": [
+    {
+      "id": "rust-format",
+      "command": ["cargo", "fmt", "--check"],
+      "cwd": "commerce-rs"
+    },
+    {
+      "id": "rust-check",
+      "command": ["cargo", "check"],
+      "cwd": "commerce-rs"
+    },
+    {
+      "id": "rust-clippy",
+      "command": ["cargo", "clippy", "--all-targets", "--", "-D", "warnings"],
+      "cwd": "commerce-rs"
+    },
+    {
+      "id": "rust-test",
+      "command": ["cargo", "test"],
+      "cwd": "commerce-rs"
+    },
+    {
+      "id": "migration-plan-json",
+      "command": ["python3", "-m", "json.tool", "migration-spec/plan.json"],
+      "cwd": "."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "product-get-detail",
+      "title": "상품 상세 조회 마이그레이션",
+      "status": "ready",
+      "dependencies": [],
+      "locks": ["commerce-http", "product-schema", "migration-plan"],
+      "allowedPaths": [
+        "commerce-rs/**",
+        "migration-spec/contracts/product-get-detail.md",
+        "migration-spec/anomalies/product-get-detail.md",
+        "migration-spec/plan.json"
+      ],
+      "forbiddenPaths": ["legacy/**"],
+      "setup": [],
+      "verification": [
+        {
+          "id": "legacy-product-tests",
+          "command": [
+            "./gradlew",
+            "test",
+            "--tests",
+            "store._0982.commerce.application.product.ProductServiceTest",
+            "--tests",
+            "store._0982.commerce.presentation.product.ProductControllerTest"
+          ],
+          "cwd": "legacy/commerce"
+        }
+      ],
+      "doneWhen": [
+        {
+          "id": "legacy-contract",
+          "description": "레거시 HTTP 및 오류 동작이 계약 문서에 기록되어 있다."
+        },
+        {
+          "id": "lookup-tests",
+          "description": "성공 및 상품 없음 동작을 검증하는 Rust 테스트가 있다."
+        },
+        {
+          "id": "persistence-boundary",
+          "description": "구현이 로컬 저장소 경계를 사용한다."
+        },
+        {
+          "id": "legacy-unchanged",
+          "description": "레거시 commerce 소스가 변경되지 않았다.",
+          "command": ["git", "diff", "--exit-code", "--", "commerce"],
+          "cwd": "legacy"
+        }
+      ],
+      "requiresApproval": false,
+      "prLabels": []
+    }
+  ]
+}
