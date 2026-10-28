@@ -71,7 +71,7 @@
     {
       "id": "product-write",
       "title": "Migrate product create, update, and delete",
-      "status": "ready",
+      "status": "complete",
       "sourcePaths": [
         "commerce/src/main/java/store/_0982/commerce/presentation/product",
         "commerce/src/main/java/store/_0982/commerce/application/product",
@@ -85,6 +85,9 @@
         "Focused tests cover success, authorization, validation, and missing products",
         "All available Java and Rust verification passes",
         "legacy/commerce remains unchanged"
+      ],
+      "notes": [
+        "The local product repository now provides atomic create/idempotency, update, hard delete, and soft delete boundaries. Focused HTTP tests cover validation, stock replacement, ownership, missing products, active group-purchase conflicts, and both deletion paths. Product events are deferred to event-boundaries."
       ]
     },
     {

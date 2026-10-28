@@ -1,14 +1,18 @@
 use axum::{
-    extract::{Path, Query, State},
+    extract::{rejection::JsonRejection, Path, Query, State},
     http::{HeaderMap, StatusCode},
     routing::get,
     Json, Router,
 };
 use image::ImageRepository;
 use seller_balance::SellerBalanceRepository;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{Arc, RwLock},
+};
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use uuid::Uuid;
 
 mod image;
@@ -19,6 +23,23 @@ const PRODUCT_LIST_FOUND_MESSAGE: &str = "내가 등록한 상품 목록 조회�
 const PRODUCT_NOT_FOUND_MESSAGE: &str = "상품을 찾을 수 없습니다.";
 const INVALID_PARAMETER_MESSAGE: &str = "적절하지 않은 요청 값이 존재합니다.";
 const NO_LOGIN_INFO_MESSAGE: &str = "로그인 정보가 없습니다.";
+const PRODUCT_CREATED_MESSAGE: &str = "상품이 등록되었습니다.";
+const PRODUCT_UPDATED_MESSAGE: &str = "상품 수정이 완료되었습니다.";
+const PRODUCT_DELETED_MESSAGE: &str = "상품이 삭제되었습니다.";
+const FORBIDDEN_NOT_PRODUCT_OWNER_MESSAGE: &str = "본인이 등록한 상품이 아닙니다.";
+const ACTIVE_GROUP_PURCHASE_MESSAGE: &str = "진행 중이거나 예정된 공동구매가 존재합니다.";
+
+const PRODUCT_CATEGORIES: [&str; 9] = [
+    "HOME",
+    "FOOD",
+    "HEALTH",
+    "BEAUTY",
+    "FASHION",
+    "ELECTRONICS",
+    "KIDS",
+    "HOBBY",
+    "PET",
+];
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -80,6 +101,114 @@ struct ProductListOptions {
     descending: bool,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProductCreateRequest {
+    name: Option<String>,
+    price: Option<i64>,
+    category: Option<String>,
+    description: Option<String>,
+    #[serde(default)]
+    stock: i32,
+    original_url: Option<String>,
+    image_url: Option<String>,
+    idempotency_key: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProductUpdateRequest {
+    name: String,
+    price: i64,
+    category: String,
+    description: String,
+    stock: i32,
+    original_link: Option<String>,
+    image_url: Option<String>,
+}
+
+struct NewProduct {
+    name: String,
+    price: i64,
+    category: String,
+    description: String,
+    stock: i32,
+    original_link: Option<String>,
+    image_url: Option<String>,
+    idempotency_key: String,
+    seller_id: Uuid,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProductRegisterInfo {
+    product_id: Uuid,
+    name: String,
+    price: i64,
+    category: String,
+    description: String,
+    stock: i32,
+    original_url: Option<String>,
+    image_url: Option<String>,
+    seller_id: Uuid,
+    created_at: String,
+}
+
+impl From<ProductDetail> for ProductRegisterInfo {
+    fn from(product: ProductDetail) -> Self {
+        Self {
+            product_id: product.product_id,
+            name: product.name,
+            price: product.price,
+            category: product.category,
+            description: product.description,
+            stock: product.stock,
+            original_url: product.original_link,
+            image_url: product.image_url,
+            seller_id: product.seller_id,
+            created_at: product.created_at,
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProductUpdateInfo {
+    product_id: Uuid,
+    name: String,
+    price: i64,
+    category: String,
+    description: String,
+    stock: i32,
+    original_link: Option<String>,
+    image_url: Option<String>,
+    seller_id: Uuid,
+}
+
+impl From<ProductDetail> for ProductUpdateInfo {
+    fn from(product: ProductDetail) -> Self {
+        Self {
+            product_id: product.product_id,
+            name: product.name,
+            price: product.price,
+            category: product.category,
+            description: product.description,
+            stock: product.stock,
+            original_link: product.original_link,
+            image_url: product.image_url,
+            seller_id: product.seller_id,
+        }
+    }
+}
+
+enum DeleteProductResult {
+    HardDeleted,
+    SoftDeleted,
+    NotFound,
+    Forbidden,
+    ActiveGroupPurchase,
+}
+
 trait ProductRepository: Send + Sync {
     fn find_by_id(&self, product_id: Uuid) -> Option<ProductDetail>;
     fn find_by_seller(
@@ -87,26 +216,78 @@ trait ProductRepository: Send + Sync {
         seller_id: Uuid,
         options: &ProductListOptions,
     ) -> (Vec<ProductDetail>, usize);
+    fn create(&self, product: NewProduct) -> ProductDetail;
+    fn update(&self, product_id: Uuid, update: ProductUpdateRequest) -> Option<ProductDetail>;
+    fn delete(&self, product_id: Uuid, seller_id: Uuid) -> DeleteProductResult;
 }
 
 struct LocalProductRepository {
-    products: HashMap<Uuid, ProductDetail>,
+    store: RwLock<LocalProductStore>,
+}
+
+struct LocalProductStore {
+    products: HashMap<Uuid, StoredProduct>,
+    idempotency_keys: HashMap<String, Uuid>,
+    used_in_group_purchase: HashSet<Uuid>,
+    active_group_purchase: HashSet<Uuid>,
+}
+
+struct StoredProduct {
+    detail: ProductDetail,
+    deleted_at: Option<String>,
 }
 
 impl LocalProductRepository {
     fn new(products: impl IntoIterator<Item = ProductDetail>) -> Self {
         Self {
-            products: products
-                .into_iter()
-                .map(|product| (product.product_id, product))
-                .collect(),
+            store: RwLock::new(LocalProductStore {
+                products: products
+                    .into_iter()
+                    .map(|product| {
+                        (
+                            product.product_id,
+                            StoredProduct {
+                                detail: product,
+                                deleted_at: None,
+                            },
+                        )
+                    })
+                    .collect(),
+                idempotency_keys: HashMap::new(),
+                used_in_group_purchase: HashSet::new(),
+                active_group_purchase: HashSet::new(),
+            }),
         }
+    }
+
+    #[cfg(test)]
+    fn mark_group_purchase_usage(&self, product_id: Uuid, active: bool) {
+        let mut store = self.store.write().unwrap();
+        store.used_in_group_purchase.insert(product_id);
+        if active {
+            store.active_group_purchase.insert(product_id);
+        }
+    }
+
+    #[cfg(test)]
+    fn is_soft_deleted(&self, product_id: Uuid) -> bool {
+        self.store
+            .read()
+            .unwrap()
+            .products
+            .get(&product_id)
+            .is_some_and(|product| product.deleted_at.is_some())
     }
 }
 
 impl ProductRepository for LocalProductRepository {
     fn find_by_id(&self, product_id: Uuid) -> Option<ProductDetail> {
-        self.products.get(&product_id).cloned()
+        self.store
+            .read()
+            .unwrap()
+            .products
+            .get(&product_id)
+            .map(|product| product.detail.clone())
     }
 
     fn find_by_seller(
@@ -114,11 +295,12 @@ impl ProductRepository for LocalProductRepository {
         seller_id: Uuid,
         options: &ProductListOptions,
     ) -> (Vec<ProductDetail>, usize) {
-        let mut products = self
+        let store = self.store.read().unwrap();
+        let mut products = store
             .products
             .values()
-            .filter(|product| product.seller_id == seller_id)
-            .cloned()
+            .filter(|product| product.detail.seller_id == seller_id)
+            .map(|product| product.detail.clone())
             .collect::<Vec<_>>();
         products.sort_by(|left, right| left.created_at.cmp(&right.created_at));
         if options.descending {
@@ -134,6 +316,80 @@ impl ProductRepository for LocalProductRepository {
             .collect();
         (page, total)
     }
+
+    fn create(&self, product: NewProduct) -> ProductDetail {
+        let mut store = self.store.write().unwrap();
+        if let Some(product_id) = store.idempotency_keys.get(&product.idempotency_key) {
+            return store.products[product_id].detail.clone();
+        }
+
+        let product_id = Uuid::new_v4();
+        let detail = ProductDetail {
+            product_id,
+            name: product.name,
+            price: product.price,
+            category: product.category,
+            description: product.description,
+            stock: product.stock,
+            original_link: product.original_link,
+            image_url: product.image_url,
+            seller_id: product.seller_id,
+            created_at: now(),
+            updated_at: None,
+        };
+        store
+            .idempotency_keys
+            .insert(product.idempotency_key, product_id);
+        store.products.insert(
+            product_id,
+            StoredProduct {
+                detail: detail.clone(),
+                deleted_at: None,
+            },
+        );
+        detail
+    }
+
+    fn update(&self, product_id: Uuid, update: ProductUpdateRequest) -> Option<ProductDetail> {
+        let mut store = self.store.write().unwrap();
+        let product = store.products.get_mut(&product_id)?;
+        product.detail.name = update.name;
+        product.detail.price = update.price;
+        product.detail.category = update.category;
+        product.detail.description = update.description;
+        product.detail.stock = update.stock;
+        product.detail.original_link = update.original_link;
+        product.detail.image_url = update.image_url;
+        product.detail.updated_at = Some(now());
+        Some(product.detail.clone())
+    }
+
+    fn delete(&self, product_id: Uuid, seller_id: Uuid) -> DeleteProductResult {
+        let mut store = self.store.write().unwrap();
+        let Some(product) = store.products.get(&product_id) else {
+            return DeleteProductResult::NotFound;
+        };
+        if product.detail.seller_id != seller_id {
+            return DeleteProductResult::Forbidden;
+        }
+        if store.active_group_purchase.contains(&product_id) {
+            return DeleteProductResult::ActiveGroupPurchase;
+        }
+        if store.used_in_group_purchase.contains(&product_id) {
+            store.products.get_mut(&product_id).unwrap().deleted_at = Some(now());
+            DeleteProductResult::SoftDeleted
+        } else {
+            store.products.remove(&product_id);
+            store
+                .idempotency_keys
+                .retain(|_, stored_product_id| *stored_product_id != product_id);
+            DeleteProductResult::HardDeleted
+        }
+    }
+}
+
+fn now() -> String {
+    OffsetDateTime::now_utc().format(&Rfc3339).unwrap()
 }
 
 #[derive(Clone)]
@@ -154,11 +410,138 @@ fn app(
     seller_balances: SellerBalanceRepository,
 ) -> Router {
     Router::new()
-        .route("/api/products", get(get_product_list))
-        .route("/api/products/{product_id}", get(get_product_detail))
+        .route("/api/products", get(get_product_list).post(create_product))
+        .route(
+            "/api/products/{product_id}",
+            get(get_product_detail)
+                .patch(update_product)
+                .delete(delete_product),
+        )
         .with_state(AppState { products })
         .merge(image::router(images))
         .merge(seller_balance::router(seller_balances))
+}
+
+async fn create_product(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    payload: Result<Json<ProductCreateRequest>, JsonRejection>,
+) -> (StatusCode, Json<ApiResponse<ProductRegisterInfo>>) {
+    let seller_id = match member_id(&headers) {
+        Ok(seller_id) => seller_id,
+        Err((status, message)) => return response(status, None, message),
+    };
+    let Json(request) = match payload {
+        Ok(request) => request,
+        Err(_) => return response(StatusCode::BAD_REQUEST, None, INVALID_PARAMETER_MESSAGE),
+    };
+    let product = match new_product(request, seller_id) {
+        Ok(product) => product,
+        Err((status, message)) => return response(status, None, message),
+    };
+
+    response(
+        StatusCode::CREATED,
+        Some(ProductRegisterInfo::from(state.products.create(product))),
+        PRODUCT_CREATED_MESSAGE,
+    )
+}
+
+async fn update_product(
+    State(state): State<AppState>,
+    Path(product_id): Path<String>,
+    payload: Result<Json<ProductUpdateRequest>, JsonRejection>,
+) -> (StatusCode, Json<ApiResponse<ProductUpdateInfo>>) {
+    let Ok(product_id) = Uuid::parse_str(&product_id) else {
+        return response(StatusCode::BAD_REQUEST, None, INVALID_PARAMETER_MESSAGE);
+    };
+    let Json(update) = match payload {
+        Ok(update) if valid_category(&update.category) => update,
+        _ => return response(StatusCode::BAD_REQUEST, None, INVALID_PARAMETER_MESSAGE),
+    };
+
+    match state.products.update(product_id, update) {
+        Some(product) => response(
+            StatusCode::OK,
+            Some(ProductUpdateInfo::from(product)),
+            PRODUCT_UPDATED_MESSAGE,
+        ),
+        None => response(StatusCode::NOT_FOUND, None, PRODUCT_NOT_FOUND_MESSAGE),
+    }
+}
+
+async fn delete_product(
+    State(state): State<AppState>,
+    Path(product_id): Path<String>,
+    headers: HeaderMap,
+) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
+    let seller_id = match member_id(&headers) {
+        Ok(seller_id) => seller_id,
+        Err((status, message)) => return response(status, None, message),
+    };
+    let Ok(product_id) = Uuid::parse_str(&product_id) else {
+        return response(StatusCode::BAD_REQUEST, None, INVALID_PARAMETER_MESSAGE);
+    };
+
+    match state.products.delete(product_id, seller_id) {
+        DeleteProductResult::HardDeleted | DeleteProductResult::SoftDeleted => {
+            response(StatusCode::OK, None, PRODUCT_DELETED_MESSAGE)
+        }
+        DeleteProductResult::NotFound => {
+            response(StatusCode::NOT_FOUND, None, PRODUCT_NOT_FOUND_MESSAGE)
+        }
+        DeleteProductResult::Forbidden => response(
+            StatusCode::FORBIDDEN,
+            None,
+            FORBIDDEN_NOT_PRODUCT_OWNER_MESSAGE,
+        ),
+        DeleteProductResult::ActiveGroupPurchase => {
+            response(StatusCode::CONFLICT, None, ACTIVE_GROUP_PURCHASE_MESSAGE)
+        }
+    }
+}
+
+fn new_product(
+    request: ProductCreateRequest,
+    seller_id: Uuid,
+) -> Result<NewProduct, (StatusCode, &'static str)> {
+    let valid = request
+        .name
+        .as_ref()
+        .is_some_and(|value| !value.trim().is_empty())
+        && request.price.is_some_and(|value| value > 0)
+        && request
+            .category
+            .as_ref()
+            .is_some_and(|value| valid_category(value))
+        && request
+            .description
+            .as_ref()
+            .is_some_and(|value| !value.trim().is_empty())
+        && request.stock > 0
+        && request
+            .idempotency_key
+            .as_ref()
+            .is_some_and(|value| !value.trim().is_empty());
+    if !valid {
+        return Err((StatusCode::BAD_REQUEST, INVALID_PARAMETER_MESSAGE));
+    }
+
+    Ok(NewProduct {
+        name: request.name.unwrap(),
+        price: request.price.unwrap(),
+        category: request.category.unwrap(),
+        description: request.description.unwrap(),
+        stock: request.stock,
+        original_link: request.original_url,
+        image_url: request.image_url,
+        idempotency_key: request.idempotency_key.unwrap(),
+        seller_id,
+    })
+}
+
+fn valid_category(category: &str) -> bool {
+    PRODUCT_CATEGORIES.contains(&category)
 }
 
 async fn get_product_list(
@@ -349,8 +732,15 @@ mod tests {
         products: impl IntoIterator<Item = ProductDetail>,
         request: Request<Body>,
     ) -> (StatusCode, serde_json::Value) {
+        send_to(Arc::new(LocalProductRepository::new(products)), request).await
+    }
+
+    async fn send_to(
+        products: Arc<LocalProductRepository>,
+        request: Request<Body>,
+    ) -> (StatusCode, serde_json::Value) {
         let response = app(
-            Arc::new(LocalProductRepository::new(products)),
+            products,
             ImageRepository::default(),
             SellerBalanceRepository::default(),
         )
@@ -360,6 +750,234 @@ mod tests {
         let status = response.status();
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         (status, serde_json::from_slice(&body).unwrap())
+    }
+
+    async fn write(
+        products: Arc<LocalProductRepository>,
+        method: &str,
+        path: &str,
+        member_id: Option<Uuid>,
+        body: Option<serde_json::Value>,
+    ) -> (StatusCode, serde_json::Value) {
+        let mut request = Request::builder().method(method).uri(path);
+        if let Some(member_id) = member_id {
+            request = request.header("x-member-id", member_id.to_string());
+        }
+        let body = match body {
+            Some(body) => {
+                request = request.header("content-type", "application/json");
+                Body::from(body.to_string())
+            }
+            None => Body::empty(),
+        };
+        send_to(products, request.body(body).unwrap()).await
+    }
+
+    fn create_body(idempotency_key: &str) -> serde_json::Value {
+        serde_json::json!({
+            "name": "새 상품",
+            "price": 20_000,
+            "category": "FOOD",
+            "description": "새 상품 설명",
+            "stock": 10,
+            "originalUrl": "https://example.com/original",
+            "imageUrl": null,
+            "idempotencyKey": idempotency_key
+        })
+    }
+
+    #[tokio::test]
+    async fn creates_a_product_and_replays_the_idempotency_key() {
+        let products = Arc::new(LocalProductRepository::new([]));
+        let seller_id = Uuid::new_v4();
+
+        let (status, created) = write(
+            products.clone(),
+            "POST",
+            "/api/products",
+            Some(seller_id),
+            Some(create_body("create-key")),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(created["status"], 201);
+        assert_eq!(created["data"]["stock"], 10);
+        assert_eq!(
+            created["data"]["originalUrl"],
+            "https://example.com/original"
+        );
+        assert_eq!(created["data"]["sellerId"], seller_id.to_string());
+        assert_eq!(created["message"], PRODUCT_CREATED_MESSAGE);
+
+        let mut replay_body = create_body("create-key");
+        replay_body["name"] = serde_json::json!("무시되는 상품명");
+        let (replay_status, replay) = write(
+            products,
+            "POST",
+            "/api/products",
+            Some(seller_id),
+            Some(replay_body),
+        )
+        .await;
+        assert_eq!(replay_status, StatusCode::CREATED);
+        assert_eq!(replay["data"]["productId"], created["data"]["productId"]);
+        assert_eq!(replay["data"]["name"], "새 상품");
+    }
+
+    #[tokio::test]
+    async fn create_product_validates_header_and_body() {
+        let products = Arc::new(LocalProductRepository::new([]));
+        let (missing_header, missing_body) = write(
+            products.clone(),
+            "POST",
+            "/api/products",
+            None,
+            Some(create_body("missing-header")),
+        )
+        .await;
+        assert_eq!(missing_header, StatusCode::UNAUTHORIZED);
+        assert_eq!(missing_body["message"], NO_LOGIN_INFO_MESSAGE);
+
+        let mut invalid = create_body("invalid-body");
+        invalid["stock"] = serde_json::json!(0);
+        let (invalid_status, invalid_body) = write(
+            products,
+            "POST",
+            "/api/products",
+            Some(Uuid::new_v4()),
+            Some(invalid),
+        )
+        .await;
+        assert_eq!(invalid_status, StatusCode::BAD_REQUEST);
+        assert_eq!(invalid_body["message"], INVALID_PARAMETER_MESSAGE);
+    }
+
+    #[tokio::test]
+    async fn updates_stock_and_returns_not_found_for_a_missing_product() {
+        let product = product();
+        let product_id = product.product_id;
+        let products = Arc::new(LocalProductRepository::new([product]));
+        let update = serde_json::json!({
+            "name": "수정 상품",
+            "price": 30_000,
+            "category": "BEAUTY",
+            "description": "수정 설명",
+            "stock": 25,
+            "originalLink": null,
+            "imageUrl": "https://example.com/updated.png"
+        });
+
+        let (status, updated) = write(
+            products.clone(),
+            "PATCH",
+            &format!("/api/products/{product_id}"),
+            None,
+            Some(update.clone()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(updated["data"]["stock"], 25);
+        assert_eq!(updated["data"]["name"], "수정 상품");
+        assert_eq!(products.find_by_id(product_id).unwrap().stock, 25);
+
+        let (missing_status, missing) = write(
+            products,
+            "PATCH",
+            &format!("/api/products/{}", Uuid::new_v4()),
+            None,
+            Some(update),
+        )
+        .await;
+        assert_eq!(missing_status, StatusCode::NOT_FOUND);
+        assert_eq!(missing["message"], PRODUCT_NOT_FOUND_MESSAGE);
+    }
+
+    #[tokio::test]
+    async fn delete_enforces_ownership_and_missing_product_errors() {
+        let product = product();
+        let product_id = product.product_id;
+        let products = Arc::new(LocalProductRepository::new([product]));
+
+        let (forbidden_status, forbidden) = write(
+            products.clone(),
+            "DELETE",
+            &format!("/api/products/{product_id}"),
+            Some(Uuid::new_v4()),
+            None,
+        )
+        .await;
+        assert_eq!(forbidden_status, StatusCode::FORBIDDEN);
+        assert_eq!(forbidden["message"], FORBIDDEN_NOT_PRODUCT_OWNER_MESSAGE);
+
+        let (missing_status, missing) = write(
+            products,
+            "DELETE",
+            &format!("/api/products/{}", Uuid::new_v4()),
+            Some(Uuid::new_v4()),
+            None,
+        )
+        .await;
+        assert_eq!(missing_status, StatusCode::NOT_FOUND);
+        assert_eq!(missing["message"], PRODUCT_NOT_FOUND_MESSAGE);
+    }
+
+    #[tokio::test]
+    async fn delete_hard_deletes_unused_and_soft_deletes_used_products() {
+        let hard_deleted = product();
+        let soft_deleted = product();
+        let active = product();
+        let seller_id = hard_deleted.seller_id;
+        let hard_deleted_id = hard_deleted.product_id;
+        let soft_deleted_id = soft_deleted.product_id;
+        let active_id = active.product_id;
+        let mut soft_deleted = soft_deleted;
+        soft_deleted.seller_id = seller_id;
+        let mut active = active;
+        active.seller_id = seller_id;
+        let products = Arc::new(LocalProductRepository::new([
+            hard_deleted,
+            soft_deleted,
+            active,
+        ]));
+        products.mark_group_purchase_usage(soft_deleted_id, false);
+        products.mark_group_purchase_usage(active_id, true);
+
+        let (hard_status, _) = write(
+            products.clone(),
+            "DELETE",
+            &format!("/api/products/{hard_deleted_id}"),
+            Some(seller_id),
+            None,
+        )
+        .await;
+        assert_eq!(hard_status, StatusCode::OK);
+        assert!(products.find_by_id(hard_deleted_id).is_none());
+
+        let (soft_status, soft_body) = write(
+            products.clone(),
+            "DELETE",
+            &format!("/api/products/{soft_deleted_id}"),
+            Some(seller_id),
+            None,
+        )
+        .await;
+        assert_eq!(soft_status, StatusCode::OK);
+        assert_eq!(soft_body["message"], PRODUCT_DELETED_MESSAGE);
+        assert!(products.find_by_id(soft_deleted_id).is_some());
+        assert!(products.is_soft_deleted(soft_deleted_id));
+
+        let (active_status, active_body) = write(
+            products.clone(),
+            "DELETE",
+            &format!("/api/products/{active_id}"),
+            Some(seller_id),
+            None,
+        )
+        .await;
+        assert_eq!(active_status, StatusCode::CONFLICT);
+        assert_eq!(active_body["message"], ACTIVE_GROUP_PURCHASE_MESSAGE);
+        assert!(products.find_by_id(active_id).is_some());
     }
 
     #[tokio::test]
