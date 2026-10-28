@@ -285,6 +285,21 @@
       ]
     },
     {
+      "id": "order-module-wiring",
+      "title": "Prepare isolated order feature module boundaries",
+      "status": "ready",
+      "sourcePaths": [
+        "commerce/src/main/java/store/_0982/commerce/presentation/order",
+        "commerce/src/main/java/store/_0982/commerce/application/order"
+      ],
+      "doneWhen": [
+        "Order create, read, confirm, cancel, lifecycle, and participant file boundaries exist",
+        "The empty order router adds no HTTP behavior",
+        "Legacy commerce sources compile and all Rust verification passes",
+        "legacy/commerce remains unchanged"
+      ]
+    },
+    {
       "id": "local-auth",
       "title": "Replace member authentication with a local account and session boundary",
       "status": "complete",
