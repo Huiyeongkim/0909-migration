@@ -712,6 +712,7 @@ fn complete_refund(
         member_id: cancellation.member_id,
         order_id: cancellation.order_id,
         amount: cancellation.refund_amount,
+        balance_after: *balance,
         kind: "REFUND",
         created_at: timestamp.clone(),
     });

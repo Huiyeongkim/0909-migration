@@ -61,12 +61,12 @@ struct Account {
     password_hash: String,
 }
 
-enum RepositoryError {
+pub(crate) enum RepositoryError {
     DuplicateUsername,
     Database(sqlx::Error),
 }
 
-enum ResolveError {
+pub(crate) enum ResolveError {
     NoSession,
     Repository(Box<RepositoryError>),
 }
@@ -326,6 +326,21 @@ impl AuthRepository {
             },
         );
     }
+
+    #[cfg(test)]
+    pub(crate) async fn insert_test_session(&self, member_id: Uuid, token: Uuid) {
+        let RepositoryBackend::Test(store) = &self.backend else {
+            panic!("test repository required");
+        };
+        store.lock().await.sessions.insert(
+            token_hash(&token.to_string()),
+            TestSession {
+                member_id,
+                expires_at: OffsetDateTime::now_utc() + Duration::hours(1),
+                revoked: false,
+            },
+        );
+    }
 }
 
 #[cfg(test)]
@@ -445,7 +460,7 @@ async fn logout(State(repository): State<AuthRepository>, headers: HeaderMap) ->
     }
 }
 
-async fn resolve_member_id(
+pub(crate) async fn resolve_member_id(
     repository: &AuthRepository,
     headers: &HeaderMap,
 ) -> Result<Uuid, ResolveError> {

@@ -48,6 +48,8 @@ pub(super) struct Order {
     pub(super) price: i64,
     pub(super) paid_price: i64,
     pub(super) status: &'static str,
+    pub(super) payment_method: Option<&'static str>,
+    pub(super) paid_at: Option<String>,
     pub(super) member_id: Uuid,
     pub(super) address: String,
     pub(super) address_detail: String,
@@ -56,10 +58,6 @@ pub(super) struct Order {
     pub(super) seller_id: Uuid,
     pub(super) group_purchase_id: Uuid,
     pub(super) idempotency_key: String,
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "used by the order-lifecycle migration unit")
-    )]
     pub(super) expired_at: String,
     pub(super) created_at: String,
     pub(super) updated_at: Option<String>,
@@ -130,6 +128,7 @@ pub(super) struct PointLedgerEntry {
     pub(super) member_id: Uuid,
     pub(super) order_id: Uuid,
     pub(super) amount: i64,
+    pub(super) balance_after: i64,
     pub(super) kind: &'static str,
     pub(super) created_at: String,
 }
@@ -159,6 +158,17 @@ impl OrderRepository {
     pub(super) fn transact_store<T>(&self, operation: impl FnOnce(&mut OrderStore) -> T) -> T {
         operation(&mut self.store.lock().unwrap())
     }
+
+    #[cfg(test)]
+    pub(super) fn try_transact_store<T>(
+        &self,
+        operation: impl FnOnce(&mut OrderStore) -> T,
+    ) -> Option<T> {
+        self.store
+            .try_lock()
+            .ok()
+            .map(|mut store| operation(&mut store))
+    }
 }
 
 impl Order {
@@ -173,6 +183,8 @@ impl Order {
                 .unit_price
                 .wrapping_mul(i64::from(new_order.quantity)),
             status: "PENDING",
+            payment_method: None,
+            paid_at: None,
             member_id: new_order.member_id,
             address: new_order.address,
             address_detail: new_order.address_detail,
