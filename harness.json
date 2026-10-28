@@ -1035,6 +1035,155 @@
       ],
       "requiresApproval": false,
       "prLabels": []
+    },
+    {
+      "id": "qa-web-ui",
+      "kind": "qa",
+      "title": "React 웹 반응형·접근성 QA",
+      "status": "ready",
+      "dependencies": [],
+      "locks": ["qa-runtime"],
+      "allowedPaths": ["qa/**"],
+      "forbiddenPaths": ["legacy/**", "commerce-rs/**", "apps/**", "packages/**", "migration-spec/**", "harness.json"],
+      "setup": [
+        {"id": "install-client-dependencies", "command": ["pnpm", "install", "--frozen-lockfile"], "cwd": "."}
+      ],
+      "verification": [
+        {"id": "app-typecheck", "command": ["pnpm", "--filter", "@commerce/app", "typecheck"], "cwd": "."},
+        {"id": "app-tests", "command": ["pnpm", "--filter", "@commerce/app", "test"], "cwd": "."},
+        {"id": "web-build", "command": ["pnpm", "--filter", "@commerce/web", "build"], "cwd": "."}
+      ],
+      "scenarios": [
+        {
+          "id": "web-responsive-accessibility",
+          "title": "공동구매 웹 화면의 반응형과 키보드 흐름",
+          "steps": [
+            "1280×800에서 공동구매 목록을 열고 첫 상품의 자세히 보기를 선택한다.",
+            "390×844와 320×700에서 목록, 상세와 고정 하단 메뉴를 확인한다.",
+            "마우스 없이 Tab, Shift+Tab과 Enter로 메뉴, 상품 상세와 계정 입력을 이동한다.",
+            "축소 모션 설정에서 상품 상세를 다시 연다."
+          ],
+          "expected": [
+            "상품 상태, 가격, 참여 수와 행동이 겹침이나 가로 스크롤 없이 보인다.",
+            "상세 제목으로 스크롤과 포커스가 이동하고 예정 상품은 이용 가능 날짜를 안내한다.",
+            "모바일 하단 메뉴가 콘텐츠를 가리지 않고 키보드 포커스가 시각적으로 구분된다.",
+            "축소 모션에서는 즉시 이동하며 기능과 정보가 사라지지 않는다."
+          ]
+        }
+      ],
+      "requiresApproval": false,
+      "prLabels": []
+    },
+    {
+      "id": "qa-desktop-smoke",
+      "kind": "qa",
+      "title": "Tauri 데스크톱 스모크 QA",
+      "status": "ready",
+      "dependencies": [],
+      "locks": ["qa-runtime"],
+      "allowedPaths": ["qa/**"],
+      "forbiddenPaths": ["legacy/**", "commerce-rs/**", "apps/**", "packages/**", "migration-spec/**", "harness.json"],
+      "setup": [
+        {"id": "install-client-dependencies", "command": ["pnpm", "install", "--frozen-lockfile"], "cwd": "."}
+      ],
+      "verification": [
+        {"id": "desktop-build", "command": ["pnpm", "--filter", "@commerce/desktop", "build"], "cwd": "."},
+        {"id": "desktop-rust-check", "command": ["cargo", "check", "--manifest-path", "apps/desktop/src-tauri/Cargo.toml"], "cwd": "."}
+      ],
+      "scenarios": [
+        {
+          "id": "tauri-desktop-smoke",
+          "title": "공유 Commerce UI의 네이티브 창 실행",
+          "steps": [
+            "API 실행 후 pnpm --filter @commerce/desktop tauri dev로 Commerce 창을 연다.",
+            "창을 최소 크기까지 줄였다가 기본 크기로 되돌린다.",
+            "공동구매, 장바구니, 주문, 포인트와 계정 메뉴를 차례로 연다.",
+            "API를 종료한 뒤 공동구매 화면을 다시 열고, API 재시작 후 창을 다시 연다."
+          ],
+          "expected": [
+            "빈 화면이나 개발자 오류 대신 웹과 같은 공동구매 UI가 표시된다.",
+            "최소 크기에서도 콘텐츠와 주요 행동이 잘리지 않는다.",
+            "인증 필요 화면은 로그인 안내를 표시하고 메뉴 이동 중 앱이 종료되지 않는다.",
+            "연결 실패는 사용자 문구로 표시되고 API 복구 후 목록이 다시 보인다."
+          ]
+        }
+      ],
+      "requiresApproval": false,
+      "prLabels": []
+    },
+    {
+      "id": "qa-backend-state",
+      "kind": "qa",
+      "title": "Rust API·로컬 DB 상태 QA",
+      "status": "ready",
+      "dependencies": [],
+      "locks": ["qa-runtime"],
+      "allowedPaths": ["qa/**"],
+      "forbiddenPaths": ["legacy/**", "commerce-rs/**", "apps/**", "packages/**", "migration-spec/**", "harness.json"],
+      "setup": [],
+      "verification": [
+        {"id": "rust-format", "command": ["cargo", "fmt", "--check"], "cwd": "commerce-rs"},
+        {"id": "rust-clippy", "command": ["cargo", "clippy", "--all-targets", "--", "-D", "warnings"], "cwd": "commerce-rs"},
+        {"id": "rust-tests", "command": ["cargo", "test"], "cwd": "commerce-rs"}
+      ],
+      "scenarios": [
+        {
+          "id": "backend-api-database",
+          "title": "응답 계약, 인증 영속성과 회원 격리",
+          "steps": [
+            "QA 전용 빈 로컬 DB에서 서로 다른 두 계정을 등록하고 로그인한다.",
+            "잘못된 비밀번호와 토큰 없이 인증 세션을 요청한다.",
+            "두 계정에서 같은 거래 ID로 포인트를 충전해 회원별 격리를 확인한다.",
+            "API를 정상 종료하고 같은 DATABASE_URL로 다시 시작해 첫 계정으로 로그인한다.",
+            "공동구매 목록을 요청해 페이지와 항목 필드를 확인한다."
+          ],
+          "expected": [
+            "응답은 status, message, data 봉투를 사용하고 평문 비밀번호가 노출되지 않는다.",
+            "인증 실패가 성공과 다른 HTTP 상태와 메시지로 반환된다.",
+            "거래와 잔액이 회원별로 격리된다.",
+            "등록 계정이 재시작 후에도 유지되고 목록 응답이 계약을 따른다."
+          ]
+        }
+      ],
+      "requiresApproval": false,
+      "prLabels": []
+    },
+    {
+      "id": "qa-purchase-point-e2e",
+      "kind": "qa",
+      "title": "로그인부터 포인트 결제까지 E2E QA",
+      "status": "ready",
+      "dependencies": [],
+      "locks": ["qa-runtime"],
+      "allowedPaths": ["qa/**"],
+      "forbiddenPaths": ["legacy/**", "commerce-rs/**", "apps/**", "packages/**", "migration-spec/**", "harness.json"],
+      "setup": [
+        {"id": "install-client-dependencies", "command": ["pnpm", "install", "--frozen-lockfile"], "cwd": "."}
+      ],
+      "verification": [
+        {"id": "api-client-contract-tests", "command": ["pnpm", "--filter", "@commerce/app", "test"], "cwd": "."}
+      ],
+      "scenarios": [
+        {
+          "id": "login-cart-order-point",
+          "title": "가입·로그인·장바구니·주문·포인트 결제",
+          "steps": [
+            "실행 전용 계정으로 가입하고 같은 정보로 로그인한다.",
+            "현재 시각에 OPEN이고 수량이 남은 공동구매를 장바구니에 담아 수량을 변경한다.",
+            "상세에서 배송 정보를 입력해 바로 주문하고 PENDING 주문을 확인한다.",
+            "주문 금액보다 큰 포인트를 충전하고 포인트 결제를 실행한다.",
+            "주문 화면을 다시 열어 결제 상태와 잔액을 확인한다."
+          ],
+          "expected": [
+            "세션에 비밀번호가 저장되지 않고 장바구니가 현재 계정의 항목만 표시한다.",
+            "주문 번호, 수량, 합계와 PENDING 상태가 표시된다.",
+            "결제 후 PAYMENT_COMPLETED가 되고 잔액이 주문 금액만큼 한 번만 감소한다.",
+            "승인된 OPEN fixture가 없으면 우회하지 않고 blocked와 원인을 기록한다."
+          ]
+        }
+      ],
+      "requiresApproval": false,
+      "prLabels": []
     }
   ]
 }

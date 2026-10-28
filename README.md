@@ -37,6 +37,10 @@ git clone --branch dev https://github.com/Huiyeongkim/0909.git legacy
 
 첫 준비 작업 이후의 다음 단위는 `migration-spec/plan.json`에서 확인합니다.
 
+## QA
+
+웹, Tauri, API·DB와 구매·포인트 흐름은 `harness.json`의 `kind: "qa"` 작업으로 실행합니다. 로컬 실행 조건, 상태 격리와 결과 기록 규칙은 [`qa/README.md`](qa/README.md)를 따릅니다.
+
 제목은 다음 형식을 사용합니다.
 
 - Issue: `[Migration] <unit-id>: <short outcome>`
