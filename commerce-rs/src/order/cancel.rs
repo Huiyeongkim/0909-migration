@@ -963,7 +963,7 @@ mod tests {
                 carts: CartRepository::empty(),
                 group_purchases,
                 auth: AuthRepository::default(),
-                products: Arc::new(LocalProductRepository::new([])),
+                products: LocalProductRepository::new([]),
             },
             buyer_id,
             seller_id,

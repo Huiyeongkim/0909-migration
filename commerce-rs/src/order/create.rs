@@ -158,6 +158,14 @@ async fn create_direct_order(
     if let Err(error) = validate_member(&state, member_id).await {
         return error.into_response();
     }
+    let product_ids = match state.products.existing_ids().await {
+        Ok(product_ids) => product_ids,
+        Err(error) => {
+            eprintln!("product database error: {error}");
+            return create_error(StatusCode::INTERNAL_SERVER_ERROR, INTERNAL_ERROR_MESSAGE)
+                .into_response();
+        }
+    };
 
     let result = state.orders.transact(|orders| {
         if let Some(existing) = orders.iter().find(|order| {
@@ -172,7 +180,7 @@ async fn create_direct_order(
                     group_purchase_id: request.group_purchase_id,
                     quantity: request.quantity,
                 }],
-                |product_id| state.products.find_by_id(product_id).is_some(),
+                |product_id| product_ids.contains(&product_id),
                 |purchases| {
                     let purchase = &purchases[0];
                     let order = Order::create(NewOrder {
@@ -226,6 +234,15 @@ async fn create_cart_order(
     if let Err(error) = validate_member(&state, member_id).await {
         return error.into_response();
     }
+    // shortcut: load product IDs once while orders are still in memory; use a joined SQL transaction after order persistence moves to PostgreSQL.
+    let product_ids = match state.products.existing_ids().await {
+        Ok(product_ids) => product_ids,
+        Err(error) => {
+            eprintln!("product database error: {error}");
+            return create_error(StatusCode::INTERNAL_SERVER_ERROR, INTERNAL_ERROR_MESSAGE)
+                .into_response();
+        }
+    };
 
     let order_keys = request
         .cart_ids
@@ -266,7 +283,7 @@ async fn create_cart_order(
                     .group_purchases
                     .with_order_participation(
                         &participations,
-                        |product_id| state.products.find_by_id(product_id).is_some(),
+                        |product_id| product_ids.contains(&product_id),
                         |purchases| {
                             let created = carts
                                 .iter()
@@ -463,7 +480,6 @@ mod tests {
         http::Request,
     };
     use serde_json::{json, Value};
-    use std::sync::Arc;
     use time::{format_description::well_known::Rfc3339, OffsetDateTime};
     use tower::ServiceExt;
 
@@ -493,9 +509,7 @@ mod tests {
             max,
             "OPEN",
         )]);
-        let products = Arc::new(LocalProductRepository::new([product(
-            product_id, seller_id,
-        )]));
+        let products = LocalProductRepository::new([product(product_id, seller_id)]);
         Fixture {
             state: OrderState {
                 orders: super::super::OrderRepository::empty(),
@@ -689,7 +703,7 @@ mod tests {
         assert_eq!(status, StatusCode::BAD_REQUEST);
 
         let state = OrderState {
-            products: Arc::new(LocalProductRepository::new([])),
+            products: LocalProductRepository::new([]),
             ..fixture.state.clone()
         };
         let (status, response) = send_to(
@@ -848,10 +862,10 @@ mod tests {
             ),
             (second_purchase, second_product, seller, 7_000, 1, 2, "OPEN"),
         ]);
-        let products = Arc::new(LocalProductRepository::new([
+        let products = LocalProductRepository::new([
             product(first_product, seller),
             product(second_product, seller),
-        ]));
+        ]);
         let state = OrderState {
             group_purchases: group_purchases.clone(),
             products,

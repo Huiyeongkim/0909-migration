@@ -303,7 +303,6 @@ mod tests {
         http::Request,
     };
     use serde_json::Value;
-    use std::sync::Arc;
     use tower::ServiceExt;
 
     fn order(buyer_id: Uuid, seller_id: Uuid, purchase_id: Uuid, created_at: &str) -> Order {
@@ -334,7 +333,7 @@ mod tests {
             carts: CartRepository::empty(),
             group_purchases: purchases,
             auth: AuthRepository::default(),
-            products: Arc::new(LocalProductRepository::new([])),
+            products: LocalProductRepository::new([]),
         }
     }
 

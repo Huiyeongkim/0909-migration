@@ -1,5 +1,11 @@
 use super::GroupPurchaseState;
-use axum::{extract::State, routing::post, Json, Router};
+use axum::{
+    extract::State,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    routing::post,
+    Json, Router,
+};
 use serde::{Deserialize, Serialize};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime, UtcOffset};
 use uuid::Uuid;
@@ -39,38 +45,42 @@ pub(super) fn router() -> Router<GroupPurchaseState> {
 async fn find_by_ids(
     State(state): State<GroupPurchaseState>,
     Json(request): Json<SearchRequest>,
-) -> Json<Vec<SearchRow>> {
-    Json(
-        request
-            .ids
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(|purchase_id| {
-                let purchase = state.purchases.find_by_id(purchase_id)?;
-                let product = state.products.find_by_id(purchase.product_id)?;
-                Some(SearchRow {
-                    group_purchase_id: purchase.group_purchase_id,
-                    min_quantity: purchase.min_quantity,
-                    max_quantity: purchase.max_quantity,
-                    title: purchase.title,
-                    description: purchase.description,
-                    image_url: purchase.image_url,
-                    discounted_price: purchase.discounted_price,
-                    status: purchase.status,
-                    start_date: instant(&purchase.start_date),
-                    end_date: instant(&purchase.end_date),
-                    created_at: instant(&purchase.created_at),
-                    updated_at: purchase.updated_at.as_deref().map(instant),
-                    current_quantity: purchase.current_quantity,
-                    product_id: product.product_id,
-                    category: product.category,
-                    price: product.price,
-                    original_url: product.original_link,
-                    seller_id: purchase.seller_id,
-                })
-            })
-            .collect(),
-    )
+) -> Response {
+    let mut rows = Vec::new();
+    for purchase_id in request.ids.unwrap_or_default() {
+        let Some(purchase) = state.purchases.find_by_id(purchase_id) else {
+            continue;
+        };
+        let product = match state.products.find_by_id(purchase.product_id).await {
+            Ok(Some(product)) => product,
+            Ok(None) => continue,
+            Err(error) => {
+                eprintln!("product database error: {error}");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+        };
+        rows.push(SearchRow {
+            group_purchase_id: purchase.group_purchase_id,
+            min_quantity: purchase.min_quantity,
+            max_quantity: purchase.max_quantity,
+            title: purchase.title,
+            description: purchase.description,
+            image_url: purchase.image_url,
+            discounted_price: purchase.discounted_price,
+            status: purchase.status,
+            start_date: instant(&purchase.start_date),
+            end_date: instant(&purchase.end_date),
+            created_at: instant(&purchase.created_at),
+            updated_at: purchase.updated_at.as_deref().map(instant),
+            current_quantity: purchase.current_quantity,
+            product_id: product.product_id,
+            category: product.category,
+            price: product.price,
+            original_url: product.original_link,
+            seller_id: purchase.seller_id,
+        });
+    }
+    Json(rows).into_response()
 }
 
 fn instant(value: &str) -> String {
@@ -90,7 +100,6 @@ mod tests {
         http::{Request, StatusCode},
     };
     use serde_json::{json, Value};
-    use std::sync::Arc;
     use tower::ServiceExt;
 
     fn purchase(
@@ -139,7 +148,7 @@ mod tests {
         products: LocalProductRepository,
         body: Value,
     ) -> (StatusCode, Value) {
-        let response = super::super::router(purchases, Arc::new(products))
+        let response = super::super::router(purchases, products)
             .oneshot(
                 Request::builder()
                     .method("POST")
