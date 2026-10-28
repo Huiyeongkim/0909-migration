@@ -1,9 +1,10 @@
 import type {
   ApiResponse, CancelOrderRequest, CartAddRequest, CartInfo, Credentials,
   DirectOrderRequest, GroupPurchaseDetail, GroupPurchaseSummary, LoginInfo,
-  MemberInfo, OrderDetail, OrderInfo, OrderRegisterInfo, PageResponse,
+  GroupPurchaseWriteRequest, GroupPurchaseWriteResult, MemberInfo, OrderDetail,
+  OrderInfo, OrderRegisterInfo, PageResponse, ProductCreateRequest, ProductListItem,
   PointChargeRequest, PointChargeResult, PointPaymentRequest, PointPaymentResult,
-  ProductDetail,
+  ProductDetail, ProductUpdateRequest, ProductWriteResult,
 } from "@commerce/contracts";
 
 export class ApiError extends Error {
@@ -20,8 +21,16 @@ export interface CommerceClient {
   login(credentials: Credentials): Promise<LoginInfo>;
   logout(): Promise<void>;
   getProduct(productId: string): Promise<ProductDetail>;
+  listSellerProducts(): Promise<PageResponse<ProductListItem>>;
+  createProduct(request: ProductCreateRequest): Promise<ProductWriteResult>;
+  updateProduct(productId: string, request: ProductUpdateRequest): Promise<ProductWriteResult>;
+  deleteProduct(productId: string): Promise<void>;
   listGroupPurchases(): Promise<PageResponse<GroupPurchaseSummary>>;
+  listSellerGroupPurchases(sellerId: string): Promise<PageResponse<GroupPurchaseSummary>>;
   getGroupPurchase(groupPurchaseId: string): Promise<GroupPurchaseDetail>;
+  createGroupPurchase(request: GroupPurchaseWriteRequest): Promise<GroupPurchaseWriteResult>;
+  updateGroupPurchase(groupPurchaseId: string, request: GroupPurchaseWriteRequest): Promise<GroupPurchaseWriteResult>;
+  deleteGroupPurchase(groupPurchaseId: string): Promise<void>;
   addCart(request: CartAddRequest): Promise<CartInfo>;
   listCarts(): Promise<PageResponse<CartInfo>>;
   updateCart(cartId: string, quantity: number): Promise<CartInfo>;
@@ -87,8 +96,16 @@ export function createCommerceClient(
     login: (body) => request("/auth/login", { method: "POST", body }),
     logout: () => request("/auth/logout", { method: "POST", auth: "bearer" }),
     getProduct: (id) => request(`/api/products/${encodeURIComponent(id)}`),
+    listSellerProducts: () => request("/api/products?page=0&size=100&sort=createdAt,desc", { auth: "member" }),
+    createProduct: (body) => request("/api/products", { method: "POST", body, auth: "member" }),
+    updateProduct: (id, body) => request(`/api/products/${encodeURIComponent(id)}`, { method: "PATCH", body }),
+    deleteProduct: (id) => request(`/api/products/${encodeURIComponent(id)}`, { method: "DELETE", auth: "member" }),
     listGroupPurchases: () => request("/api/purchases?page=0&size=50&sort=createdAt,desc"),
+    listSellerGroupPurchases: (sellerId) => request(`/api/purchases/seller/${encodeURIComponent(sellerId)}?page=0&size=100&sort=createdAt,desc`),
     getGroupPurchase: (id) => request(`/api/purchases/${encodeURIComponent(id)}`),
+    createGroupPurchase: (body) => request("/api/purchases", { method: "POST", body, auth: "member" }),
+    updateGroupPurchase: (id, body) => request(`/api/purchases/${encodeURIComponent(id)}`, { method: "PATCH", body, auth: "member" }),
+    deleteGroupPurchase: (id) => request(`/api/purchases/${encodeURIComponent(id)}`, { method: "DELETE", auth: "member" }),
     addCart: (body) => request("/api/carts", { method: "POST", body, auth: "member" }),
     listCarts: () => request("/api/carts?page=0&size=50", { auth: "member" }),
     updateCart: (cartId, quantity) => request("/api/carts", {

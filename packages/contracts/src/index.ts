@@ -32,6 +32,51 @@ export interface ProductDetail {
   updatedAt: string | null;
 }
 
+export interface ProductListItem {
+  productId: string;
+  name: string;
+  price: number;
+  imageUrl: string | null;
+  category: string;
+  createdAt: string;
+  updatedAt: string | null;
+}
+
+export interface ProductCreateRequest {
+  name: string;
+  price: number;
+  category: string;
+  description: string;
+  stock: number;
+  originalUrl: string | null;
+  imageUrl: string | null;
+  idempotencyKey: string;
+}
+
+export interface ProductUpdateRequest {
+  name: string;
+  price: number;
+  category: string;
+  description: string;
+  stock: number;
+  originalLink: string | null;
+  imageUrl: string | null;
+}
+
+export interface ProductWriteResult {
+  productId: string;
+  name: string;
+  price: number;
+  category: string;
+  description: string;
+  stock: number;
+  originalUrl?: string | null;
+  originalLink?: string | null;
+  imageUrl: string | null;
+  sellerId: string;
+  createdAt?: string;
+}
+
 export interface GroupPurchaseSummary {
   groupPurchaseId: string;
   minQuantity: number;
@@ -66,6 +111,35 @@ export interface GroupPurchaseDetail {
   category: string;
   status: string;
   createdAt: string;
+}
+
+export interface GroupPurchaseWriteRequest {
+  minQuantity: number;
+  maxQuantity: number;
+  title: string;
+  description: string | null;
+  discountedPrice: number;
+  startDate: string;
+  endDate: string;
+  productId: string;
+  imageUrl: string | null;
+}
+
+export interface GroupPurchaseWriteResult {
+  groupPurchaseId: string;
+  minQuantity: number;
+  maxQuantity: number;
+  discountedPrice: number;
+  title: string;
+  description: string | null;
+  status: string;
+  imageUrl: string | null;
+  startDate: string;
+  endDate: string;
+  sellerId: string;
+  productId: string;
+  createdAt: string;
+  updatedAt: string | null;
 }
 
 export interface CartAddRequest { groupPurchaseId: string; quantity: number }

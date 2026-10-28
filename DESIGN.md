@@ -189,6 +189,7 @@ Cards, inputs, buttons, panels, and badges use sharp rectangular corners. One-pi
 ### Inputs / Fields
 
 - **Style:** White surface, one-pixel gray rule, sharp corners, and a 43px minimum height.
+- **Long text:** Textareas use the same field treatment, remain vertically resizable, and start tall enough to review several lines.
 - **Focus:** Offset translucent orange outline.
 - **Error / Disabled:** Error meaning is stated in text; disabled actions reduce opacity and change cursor.
 
@@ -199,6 +200,10 @@ Desktop navigation lives in the sticky matte-black top bar with divided tabs, wh
 ### Product Catalog Card
 
 The signature card joins documentary imagery with category, explicit status, product title, safety-orange price, struck original price, participation progress, quantity, timing, and action. The first card is visually dominant; neighboring cards remain compact and comparison-oriented.
+
+### Seller Console
+
+Seller management keeps the catalog's editorial rules: two sharp tabs divide products from group purchases, a neutral toolbar pairs context with one primary creation action, and white ruled rows hold item facts and actions. Create and edit forms open inline above the list in a two-column desktop grid that collapses to one column on mobile. Destructive actions require an explicit inline confirmation instead of a browser dialog.
 
 ## Do's and Don'ts
 
